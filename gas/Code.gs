@@ -145,6 +145,7 @@ function doGet(e) {
  * BƯỚC 3: POST ENDPOINT TIẾP NHẬN DỮ LIỆU TỪ EXTENSION
  */
 function doPost(e) {
+  const startTime = Date.now();
   try {
     let data;
     if (e && e.postData && e.postData.contents) {
@@ -176,66 +177,56 @@ function doPost(e) {
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 1. Tự động tìm và xóa sạch các hàng "TỔNG CỘNG" dư thừa bên dưới Dòng 2 (di chứng từ phiên bản cũ)
-    const initialLastRow = sheet.getLastRow();
-    if (initialLastRow >= 3) {
-      for (let r = initialLastRow; r >= 3; r--) {
-        const cellB = String(sheet.getRange(r, 2).getValue() || "").toUpperCase();
-        const cellA = String(sheet.getRange(r, 1).getValue() || "").toUpperCase();
-        if (cellB.includes("TỔNG CỘNG") || cellB.includes("TONG CONG") || cellA.includes("TỔNG CỘNG")) {
-          sheet.deleteRow(r);
-        }
-      }
-    }
-
-    // Đọc toàn bộ bảng hiện tại sau khi đã dọn dẹp hàng tổng thừa
+    // 1. Đọc toàn bộ bảng vào RAM 1 lần duy nhất (Zero cell-by-cell RPC calls)
     const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
+    const existingValues = dataRange.getValues();
+    const existingRowCount = existingValues.length;
+
+    // 2. Lọc bỏ hàng tổng thừa từ phiên bản cũ và lập chỉ mục đơn hàng trong RAM
+    const currentRows = [];
     const orderRowMap = new Map();
 
-    // Dòng 1 = Tiêu đề, Dòng 2 = TỔNG CỘNG. Đơn hàng bắt đầu từ Dòng 3 (index 2)
-    for (let i = 2; i < values.length; i++) {
-      const sn = String(values[i][1]).trim();
-      if (sn && !sn.toUpperCase().includes("TỔNG CỘNG")) {
-        orderRowMap.set(sn, i + 1); // 1-based row index
+    for (let i = 2; i < existingRowCount; i++) {
+      const row = existingValues[i];
+      const sn = String(row[1] || "").trim();
+      const colA = String(row[0] || "").toUpperCase();
+      if (!sn || sn.toUpperCase().includes("TỔNG CỘNG") || sn.toUpperCase().includes("TONG CONG") || colA.includes("TỔNG CỘNG")) {
+        continue;
       }
+      orderRowMap.set(sn, currentRows.length);
+      currentRows.push(row);
     }
 
     const now = new Date();
     let createdCount = 0;
     let updatedCount = 0;
-    const newRowsToAppend = [];
-    let hasModifiedExisting = false;
 
-    // Duyệt qua từng đơn hàng và xử lý
+    // 3. Duyệt và cập nhật / thêm đơn mới hoàn toàn trong RAM
     for (let k = 0; k < ordersList.length; k++) {
       const order = ordersList[k];
       const sn = String(order.order_sn || order.ordersn || "").trim();
       if (!sn) continue;
 
       if (orderRowMap.has(sn)) {
-        // ĐÃ CÓ MÃ ĐƠN -> CẬP NHẬT TRẠNG THÁI / HOÀN HỦY / TIỀN
-        const idx = orderRowMap.get(sn) - 1; // 0-based index trong mảng values
+        const idx = orderRowMap.get(sn);
+        const r = currentRows[idx];
 
-        if (order.order_status) values[idx][11] = String(order.order_status);
-        if (order.return_status) values[idx][12] = String(order.return_status);
-        if (order.fee_amount !== undefined && order.fee_amount !== "") values[idx][9] = Number(order.fee_amount);
-        if (order.escrow_amount !== undefined && order.escrow_amount !== "") values[idx][10] = Number(order.escrow_amount);
-        if (order.tracking_no) values[idx][2] = String(order.tracking_no);
-        if (order.shipping_carrier) values[idx][3] = String(order.shipping_carrier);
-        if (order.buyer_name) values[idx][4] = String(order.buyer_name);
-        if (order.shipping_area) values[idx][5] = String(order.shipping_area);
-        if (order.items_detail && (String(values[idx][6]).startsWith("• Đơn hàng") || !values[idx][6])) {
-          values[idx][6] = order.items_detail;
+        if (order.order_status) r[11] = String(order.order_status);
+        if (order.return_status) r[12] = String(order.return_status);
+        if (order.fee_amount !== undefined && order.fee_amount !== "") r[9] = Number(order.fee_amount);
+        if (order.escrow_amount !== undefined && order.escrow_amount !== "") r[10] = Number(order.escrow_amount);
+        if (order.tracking_no) r[2] = String(order.tracking_no);
+        if (order.shipping_carrier) r[3] = String(order.shipping_carrier);
+        if (order.buyer_name) r[4] = String(order.buyer_name);
+        if (order.shipping_area) r[5] = String(order.shipping_area);
+        if (order.items_detail && (String(r[6]).startsWith("• Đơn hàng") || !r[6])) {
+          r[6] = order.items_detail;
         }
-        if (order.total_quantity) values[idx][7] = Number(order.total_quantity);
-        if (order.total_amount) values[idx][8] = Number(order.total_amount);
-        values[idx][13] = now;
-
-        hasModifiedExisting = true;
+        if (order.total_quantity) r[7] = Number(order.total_quantity);
+        if (order.total_amount) r[8] = Number(order.total_amount);
+        r[13] = now;
         updatedCount++;
       } else {
-        // CHƯA CÓ TRÊN SHEET -> THÊM MỚI
         const newRow = [
           order.created_at ? new Date(order.created_at) : now,
           sn,
@@ -252,46 +243,43 @@ function doPost(e) {
           String(order.return_status || "Bình thường"),
           now
         ];
-
-        newRowsToAppend.push(newRow);
-        orderRowMap.set(sn, values.length + newRowsToAppend.length);
+        orderRowMap.set(sn, currentRows.length);
+        currentRows.push(newRow);
         createdCount++;
       }
     }
 
-    // Ghi đè các dòng đã sửa
-    if (hasModifiedExisting) {
-      dataRange.setValues(values);
+    // 4. Sắp xếp toàn bộ đơn hàng trong RAM: Ngày tạo MỚI NHẤT lên đầu (< 1ms)
+    currentRows.sort((a, b) => {
+      const timeA = a[0] instanceof Date ? a[0].getTime() : new Date(a[0]).getTime();
+      const timeB = b[0] instanceof Date ? b[0].getTime() : new Date(b[0]).getTime();
+      if (timeB !== timeA) return (timeB || 0) - (timeA || 0);
+      return String(b[1] || "").localeCompare(String(a[1] || ""));
+    });
+
+    // 5. Ghi 1 lần duy nhất xuống Sheet từ Dòng 3 (Single Batch Write)
+    if (currentRows.length > 0) {
+      sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
     }
 
-    // Nối thêm các dòng đơn mới bắt đầu từ dòng 3 trở đi
-    if (newRowsToAppend.length > 0) {
-      const startRow = Math.max(sheet.getLastRow() + 1, 3);
-      sheet.getRange(startRow, 1, newRowsToAppend.length, 14).setValues(newRowsToAppend);
+    // 6. Xóa các dòng rác thừa phía sau nếu có
+    const prevDataRows = existingRowCount - 2;
+    if (prevDataRows > currentRows.length) {
+      sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 14).clearContent();
     }
 
-    // TỰ ĐỘNG SẮP XẾP TOÀN BỘ ĐƠN HÀNG TỪ DÒNG 3 TRỞ ĐI: NGÀY TẠO MỚI NHẤT LÊN ĐẦU
-    const lastRow = sheet.getLastRow();
-    if (lastRow >= 3) {
-      sheet.getRange(3, 1, lastRow - 2, 14).sort([
-        { column: 1, ascending: false }, // Cột 1: Ngày tạo (Giảm dần - Mới nhất lên đầu)
-        { column: 2, ascending: false }  // Cột 2: Mã đơn hàng (Phụ)
-      ]);
-    }
+    // 7. Gộp cập nhật công thức Dòng 2 thành 1 lệnh duy nhất (Single Batch Formula Write)
+    sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H10000)", "=SUM(I3:I10000)", "=SUM(J3:J10000)", "=SUM(K3:K10000)"]]);
 
-    // Luôn đảm bảo công thức Dòng 2 chính xác 100% không bị #REF!
-    sheet.getRange("H2").setFormula("=SUM(H3:H10000)");
-    sheet.getRange("I2").setFormula("=SUM(I3:I10000)");
-    sheet.getRange("J2").setFormula("=SUM(J3:J10000)");
-    sheet.getRange("K2").setFormula("=SUM(K3:K10000)");
-
+    const executionTimeMs = Date.now() - startTime;
     const totalProcessed = createdCount + updatedCount;
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
-      message: `Đã đồng bộ ${totalProcessed} đơn (${createdCount} đơn mới, ${updatedCount} đơn cập nhật)`,
+      message: `Đã đồng bộ ${totalProcessed} đơn (${createdCount} đơn mới, ${updatedCount} đơn cập nhật) [${executionTimeMs}ms]`,
       total: totalProcessed,
       created: createdCount,
-      updated: updatedCount
+      updated: updatedCount,
+      executionTimeMs: executionTimeMs
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -310,38 +298,49 @@ function sortByNewestCreated() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
 
-  // 1. Quét và xóa sạch các hàng "TỔNG CỘNG" dư thừa nằm ở bên dưới dòng 2
-  const initialLastRow = sheet.getLastRow();
-  let deletedCount = 0;
-  if (initialLastRow >= 3) {
-    for (let r = initialLastRow; r >= 3; r--) {
-      const cellB = String(sheet.getRange(r, 2).getValue() || "").toUpperCase();
-      const cellA = String(sheet.getRange(r, 1).getValue() || "").toUpperCase();
-      if (cellB.includes("TỔNG CỘNG") || cellB.includes("TONG CONG") || cellA.includes("TỔNG CỘNG")) {
-        sheet.deleteRow(r);
-        deletedCount++;
-      }
-    }
-  }
+  const dataRange = sheet.getDataRange();
+  const values = dataRange.getValues();
+  const existingRowCount = values.length;
 
-  // 2. Sắp xếp toàn bộ dữ liệu đơn từ dòng 3 trở đi: Ngày tạo MỚI NHẤT lên đầu
-  const lastRow = sheet.getLastRow();
-  if (lastRow >= 3) {
-    sheet.getRange(3, 1, lastRow - 2, 14).sort([
-      { column: 1, ascending: false }, // Ngày tạo mới nhất ở trên
-      { column: 2, ascending: false }
-    ]);
-
-    // 3. Cập nhật lại công thức Dòng 2 chính xác
-    sheet.getRange("H2").setFormula("=SUM(H3:H10000)");
-    sheet.getRange("I2").setFormula("=SUM(I3:I10000)");
-    sheet.getRange("J2").setFormula("=SUM(J3:J10000)");
-    sheet.getRange("K2").setFormula("=SUM(K3:K10000)");
-
-    SpreadsheetApp.getUi().alert(`✅ Đã xóa ${deletedCount} hàng tổng thừa ở cuối bảng!\n✅ Đã sắp xếp lại toàn bộ đơn hàng: MỚI NHẤT ở trên đầu!\n⭐ Hiện tại chỉ còn duy nhất 1 HÀNG TỔNG CỘNG GHIM CỐ ĐỊNH Ở DÒNG 2.`);
-  } else {
+  if (existingRowCount < 3) {
     SpreadsheetApp.getUi().alert("⚠️ Chưa có đơn hàng nào để sắp xếp!");
+    return;
   }
+
+  // Lọc và làm sạch trong RAM
+  const rows = [];
+  let deletedCount = 0;
+  for (let i = 2; i < existingRowCount; i++) {
+    const row = values[i];
+    const sn = String(row[1] || "").trim();
+    const colA = String(row[0] || "").toUpperCase();
+    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG") || sn.toUpperCase().includes("TONG CONG") || colA.includes("TỔNG CỘNG")) {
+      deletedCount++;
+      continue;
+    }
+    rows.push(row);
+  }
+
+  // Sắp xếp trong RAM: Mới nhất lên đầu
+  rows.sort((a, b) => {
+    const timeA = a[0] instanceof Date ? a[0].getTime() : new Date(a[0]).getTime();
+    const timeB = b[0] instanceof Date ? b[0].getTime() : new Date(b[0]).getTime();
+    if (timeB !== timeA) return (timeB || 0) - (timeA || 0);
+    return String(b[1] || "").localeCompare(String(a[1] || ""));
+  });
+
+  // Ghi 1 lần xuống Sheet
+  if (rows.length > 0) {
+    sheet.getRange(3, 1, rows.length, 14).setValues(rows);
+  }
+
+  const prevDataRows = existingRowCount - 2;
+  if (prevDataRows > rows.length) {
+    sheet.getRange(3 + rows.length, 1, prevDataRows - rows.length, 14).clearContent();
+  }
+
+  sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H10000)", "=SUM(I3:I10000)", "=SUM(J3:J10000)", "=SUM(K3:K10000)"]]);
+  SpreadsheetApp.getUi().alert(`✅ Đã dọn dẹp và sắp xếp lại toàn bộ ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!\n⭐ 1 HÀNG TỔNG CỘNG GHIM CỐ ĐỊNH Ở DÒNG 2.`);
 }
 
 /**

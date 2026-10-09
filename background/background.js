@@ -278,13 +278,14 @@ async function fetchAllShopeeOrdersDirectApi(maxCount = 200) {
     return [];
   }
 
+  const CHUNK_SIZE = 25;
   const chunks = [];
-  for (let i = 0; i < indexList.length; i += 5) {
-    chunks.push(indexList.slice(i, i + 5));
+  for (let i = 0; i < indexList.length; i += CHUNK_SIZE) {
+    chunks.push(indexList.slice(i, i + CHUNK_SIZE));
   }
 
   const allFormattedOrders = [];
-  const CONCURRENCY = 6;
+  const CONCURRENCY = 8;
 
   for (let i = 0; i < chunks.length; i += CONCURRENCY) {
     const slice = chunks.slice(i, i + CONCURRENCY);
@@ -349,11 +350,12 @@ async function performFullSync(customWebhookUrl) {
     });
 
     const sheetResult = await postToGoogleSheet({ orders }, customWebhookUrl);
+    const execTime = sheetResult.executionTimeMs ? ` [${(sheetResult.executionTimeMs / 1000).toFixed(1)}s]` : "";
     const finalResult = {
       success: sheetResult.success,
       totalOrders: orders.length,
       message: sheetResult.success
-        ? `Đã đồng bộ trọn vẹn ${orders.length} đơn hàng sang Google Sheet!`
+        ? `Đã đồng bộ trọn vẹn ${orders.length} đơn hàng sang Google Sheet!${execTime}`
         : sheetResult.message
     };
 

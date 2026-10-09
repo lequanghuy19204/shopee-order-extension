@@ -225,16 +225,17 @@
       return [];
     }
 
-    // Bước 2: Chia thành từng nhóm nhỏ (5 đơn/request) và gọi card API song song
+    // Bước 2: Chia thành từng nhóm (25 đơn/request) và gọi card API song song
+    const CHUNK_SIZE = 25;
     const chunks = [];
-    for (let i = 0; i < indexList.length; i += 5) {
-      chunks.push(indexList.slice(i, i + 5));
+    for (let i = 0; i < indexList.length; i += CHUNK_SIZE) {
+      chunks.push(indexList.slice(i, i + CHUNK_SIZE));
     }
 
     const allFormattedOrders = [];
 
-    // Chạy song song 6 request cùng lúc để đạt tốc độ tối đa
-    const CONCURRENCY = 6;
+    // Chạy song song 8 request cùng lúc để đạt tốc độ tối đa trong 1 đợt
+    const CONCURRENCY = 8;
     for (let i = 0; i < chunks.length; i += CONCURRENCY) {
       const slice = chunks.slice(i, i + CONCURRENCY);
       const batchResults = await Promise.all(
