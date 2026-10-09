@@ -225,8 +225,8 @@
       return [];
     }
 
-    // Bước 2: Chia thành từng nhóm (25 đơn/request) và gọi card API song song
-    const CHUNK_SIZE = 25;
+    // Bước 2: Chia thành từng nhóm 5 đơn (giới hạn tối đa của Shopee API)
+    const CHUNK_SIZE = 5;
     const chunks = [];
     for (let i = 0; i < indexList.length; i += CHUNK_SIZE) {
       chunks.push(indexList.slice(i, i + CHUNK_SIZE));
@@ -234,36 +234,32 @@
 
     const allFormattedOrders = [];
 
-    // Chạy song song 8 request cùng lúc để đạt tốc độ tối đa trong 1 đợt
-    const CONCURRENCY = 8;
-    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-      const slice = chunks.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        slice.map((chunk) =>
-          fetch(cardUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              order_list_tab: 100,
-              need_count_down_desc: false,
-              order_param_list: chunk
-            })
+    // Gửi song song toàn bộ các chunks cùng lúc để tối đa hóa tốc độ
+    const batchResults = await Promise.all(
+      chunks.map((chunk) =>
+        fetch(cardUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            order_list_tab: 100,
+            need_count_down_desc: false,
+            order_param_list: chunk
           })
-            .then((r) => r.json())
-            .then((res) => res.data?.card_list || [])
-            .catch(() => [])
-        )
-      );
+        })
+          .then((r) => r.json())
+          .then((res) => res.data?.card_list || [])
+          .catch(() => [])
+      )
+    );
 
-      batchResults.forEach((cards) => {
-        cards.forEach((item) => {
-          const cardObj = extractCardObject(item);
-          const parsed = formatShopeeOrderCard(cardObj);
-          if (parsed) allFormattedOrders.push(parsed);
-        });
+    batchResults.forEach((cards) => {
+      cards.forEach((item) => {
+        const cardObj = extractCardObject(item);
+        const parsed = formatShopeeOrderCard(cardObj);
+        if (parsed) allFormattedOrders.push(parsed);
       });
-    }
+    });
 
     allFormattedOrders.sort((a, b) => {
       const timeA = new Date(a.created_at).getTime();

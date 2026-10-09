@@ -268,9 +268,10 @@ async function fetchAllShopeeOrdersDirectApi(maxCount = 200) {
 
   const indexJson = await indexResponse.json();
   if (indexJson.code !== 0 && indexJson.message) {
-    if (indexJson.message.toLowerCase().includes("login") || indexJson.message.toLowerCase().includes("auth")) {
+    if (indexJson.message.toLowerCase().includes("login") || indexJson.message.toLowerCase().includes("auth") || indexJson.code === 100000) {
       throw new Error("Phiên đăng nhập Shopee đã hết hạn. Vui lòng đăng nhập lại banhang.shopee.vn");
     }
+    throw new Error(`Shopee API lỗi: ${indexJson.message}`);
   }
 
   const indexList = indexJson.data?.index_list || [];
@@ -278,43 +279,40 @@ async function fetchAllShopeeOrdersDirectApi(maxCount = 200) {
     return [];
   }
 
-  const CHUNK_SIZE = 25;
+  // Shopee API giới hạn tối đa 5 đơn/request card API
+  const CHUNK_SIZE = 5;
   const chunks = [];
   for (let i = 0; i < indexList.length; i += CHUNK_SIZE) {
     chunks.push(indexList.slice(i, i + CHUNK_SIZE));
   }
 
   const allFormattedOrders = [];
-  const CONCURRENCY = 8;
-
-  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-    const slice = chunks.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.all(
-      slice.map((chunk) =>
-        fetch(cardUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({
-            order_list_tab: 100,
-            need_count_down_desc: false,
-            order_param_list: chunk
-          })
+  // Gửi song song toàn bộ các chunks cùng lúc để tối ưu tốc độ xuống 1-2s
+  const batchResults = await Promise.all(
+    chunks.map((chunk) =>
+      fetch(cardUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          order_list_tab: 100,
+          need_count_down_desc: false,
+          order_param_list: chunk
         })
-          .then((r) => r.json())
-          .then((res) => res.data?.card_list || [])
-          .catch(() => [])
-      )
-    );
+      })
+        .then((r) => r.json())
+        .then((res) => res.data?.card_list || [])
+        .catch(() => [])
+    )
+  );
 
-    batchResults.forEach((cards) => {
-      cards.forEach((item) => {
-        const cardObj = extractCardObject(item);
-        const parsed = formatShopeeOrderCard(cardObj);
-        if (parsed) allFormattedOrders.push(parsed);
-      });
+  batchResults.forEach((cards) => {
+    cards.forEach((item) => {
+      const cardObj = extractCardObject(item);
+      const parsed = formatShopeeOrderCard(cardObj);
+      if (parsed) allFormattedOrders.push(parsed);
     });
-  }
+  });
 
   return allFormattedOrders;
 }
