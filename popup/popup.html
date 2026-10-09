@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shopee Order to Sheet</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <header class="header">
+      <div class="brand">
+        <div class="logo-badge">🛒</div>
+        <div>
+          <h1 class="title">Shopee to Sheet</h1>
+          <p class="subtitle">Xuất đơn & Đối soát hoàn hủy</p>
+        </div>
+      </div>
+      <div id="statusPill" class="status-pill status-disconnected">
+        <span class="status-dot"></span>
+        <span id="statusText">Chưa kết nối</span>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+      <!-- 1-Click Sync Card (Đồng bộ mọi trang web) -->
+      <section class="card sync-hero-card">
+        <div class="sync-hero-header">
+          <span class="sync-hero-badge">1-CLICK SYNC</span>
+          <span class="sync-hero-title">Đồng Bộ Tất Cả Đơn Hàng</span>
+        </div>
+        <p class="sync-hero-desc">Bấm đồng bộ trực tiếp từ <b>bất kỳ trang web nào</b> mà không cần mở tab Shopee!</p>
+
+        <button id="btnSyncAll" class="btn btn-sync-hero">
+          <span id="syncSpinner" class="spinner-icon hidden">⏳</span>
+          <span id="syncBtnText">🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN SANG SHEET</span>
+        </button>
+
+        <div id="syncStatusNotice" class="sync-notice hidden"></div>
+      </section>
+
+      <!-- Auto Sync Schedule Card (Tự động theo thời gian set) -->
+      <section class="card schedule-card">
+        <div class="card-header">
+          <span class="card-title">⏱️ Tự động đồng bộ theo chu kỳ</span>
+          <label class="switch">
+            <input type="checkbox" id="toggleAutoSync">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="form-group">
+          <label for="timerIntervalInput">Chu kỳ (Ngày : Giờ : Phút : Giây):</label>
+          <div class="timer-input-wrap">
+            <input
+              type="text"
+              id="timerIntervalInput"
+              class="timer-input"
+              value="00:00:01:00"
+              placeholder="00:00:01:00"
+              maxlength="11"
+              spellcheck="false"
+            />
+          </div>
+          <div id="intervalHumanText" class="helper-text helper-timer">
+            ℹ️ Cứ sau 1 phút là cập nhật 1 lần (tối thiểu 30 giây)
+          </div>
+
+          <!-- Quick Interval Chips -->
+          <div class="quick-chips">
+            <button type="button" class="chip-btn" data-val="00:00:00:30">30s</button>
+            <button type="button" class="chip-btn" data-val="00:00:01:00">1 phút</button>
+            <button type="button" class="chip-btn" data-val="00:00:05:00">5 phút</button>
+            <button type="button" class="chip-btn" data-val="00:00:15:00">15 phút</button>
+            <button type="button" class="chip-btn" data-val="00:01:00:00">1 giờ</button>
+          </div>
+        </div>
+
+        <!-- Schedule Status Info -->
+        <div class="schedule-status-box">
+          <div class="schedule-info-row">
+            <span class="schedule-label">⏳ Lần chạy kế tiếp sau:</span>
+            <span class="schedule-val highlight" id="nextSyncCountdown">Đang tắt</span>
+          </div>
+          <div class="schedule-info-row">
+            <span class="schedule-label">🕒 Lần chạy gần nhất:</span>
+            <span class="schedule-val" id="lastSyncInfo">-</span>
+          </div>
+        </div>
+
+        <button id="btnSaveSchedule" class="btn btn-primary btn-save-schedule">
+          💾 Lưu Lịch Trình Tự Động
+        </button>
+
+        <div id="scheduleResult" class="test-result hidden"></div>
+      </section>
+
+      <!-- Webhook Config -->
+      <section class="card">
+        <div class="card-header">
+          <span class="card-title">Cấu hình Google Sheet</span>
+        </div>
+
+        <div class="form-group">
+          <label for="webhookUrl">Webhook URL (Apps Script Exec):</label>
+          <input
+            type="text"
+            id="webhookUrl"
+            placeholder="https://script.google.com/macros/s/.../exec"
+            spellcheck="false"
+            autocomplete="off"
+          />
+          <small class="helper-text">Lấy từ mục <i>Triển khai (Deploy) &rarr; Web app</i> trên Apps Script</small>
+        </div>
+
+        <div class="form-group">
+          <label for="sheetUrl">Link xem Google Sheet (Tùy chọn):</label>
+          <div class="input-with-button">
+            <input
+              type="text"
+              id="sheetUrl"
+              placeholder="https://docs.google.com/spreadsheets/d/..."
+              spellcheck="false"
+            />
+            <button id="btnOpenSheet" class="btn btn-secondary btn-icon" title="Mở trang tính">
+              📊 Mở
+            </button>
+          </div>
+        </div>
+
+        <div class="btn-group">
+          <button id="btnSave" class="btn btn-primary">💾 Lưu Webhook</button>
+          <button id="btnTest" class="btn btn-outline">⚡ Test kết nối</button>
+        </div>
+
+        <div id="testResult" class="test-result hidden"></div>
+      </section>
+
+      <!-- Preferences -->
+      <section class="card">
+        <div class="card-header">
+          <span class="card-title">Tùy chọn hiển thị Shopee</span>
+        </div>
+
+        <div class="toggle-item">
+          <div>
+            <div class="toggle-label">Nút xuất trên Danh sách đơn</div>
+            <div class="toggle-desc">Chèn nút xuất 1-click trực tiếp trên từng đơn hàng</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="toggleListButtons" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="toggle-item">
+          <div>
+            <div class="toggle-label">Widget nổi góc màn hình</div>
+            <div class="toggle-desc">Hộp thao tác nhanh luôn hiển thị bên phải trang</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" id="toggleFloatingWidget" checked>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Recent Orders History -->
+      <section class="card">
+        <div class="card-header">
+          <span class="card-title">Lịch sử xuất gần đây</span>
+          <button id="btnClearHistory" class="btn-link">Xóa lịch sử</button>
+        </div>
+        <div id="historyList" class="history-list">
+          <div class="history-empty">Chưa có đơn hàng nào được xuất</div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <span>Phiên bản 2.0.0 &bull; Đồng bộ mọi web & Tự động theo chu kỳ</span>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
