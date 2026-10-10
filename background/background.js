@@ -224,15 +224,44 @@ async function fetchIncomeViaTab(ordersToFetch, targetTabId) {
   return new Map();
 }
 
-async function fetchAdsDataViaTab(targetTabId, startTimeSec, endTimeSec) {
+function getMonthTimestampRanges(monthsCount) {
+  const count = Math.max(1, Number(monthsCount) || 1);
+  const ranges = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const targetDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
+    const startObj = new Date(year, month, 1, 0, 0, 0, 0);
+    let endObj;
+    if (i === 0) {
+      endObj = new Date(year, month, now.getDate(), 23, 59, 59, 999);
+    } else {
+      endObj = new Date(year, month + 1, 0, 23, 59, 59, 999);
+    }
+    const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+    const monthName = `Tháng ${month + 1}`;
+    ranges.push({
+      month_key: monthKey,
+      month_name: monthName,
+      year: year,
+      month: month + 1,
+      start_time: Math.floor(startObj.getTime() / 1000),
+      end_time: Math.floor(endObj.getTime() / 1000)
+    });
+  }
+  return ranges;
+}
+
+async function fetchAdsDataViaTab(targetTabId, monthRanges) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: targetTabId },
-      func: async (sTime, eTime) => {
+      func: async (ranges) => {
         try {
           const match = document.cookie.match(/SPC_CDS=([^;]+)/);
           const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
-          let ads_balance = null, ads_expense_today = null, ads_expense_month = null, ads_month_roas = null, ads_month_gmv = null;
+          let ads_balance = null, ads_expense_today = null;
 
           let wRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
             method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include"
@@ -250,37 +279,49 @@ async function fetchAdsDataViaTab(targetTabId, startTimeSec, endTimeSec) {
             if (e !== undefined && e !== null) ads_expense_today = Math.round(Number(e) / 100000);
           }
 
-          if (sTime && eTime) {
-            const rRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({
-                agg_interval: 12,
-                campaign_type: "product_homepage_v2",
-                start_time: sTime,
-                end_time: eTime,
-                need_roi_target_setting: false,
-                filter_params: {
-                  campaign_type: "new_cpc_homepage"
-                }
-              })
-            }).then(r => r.json()).catch(() => null);
+          const monthly_ads = [];
+          if (ranges && Array.isArray(ranges)) {
+            for (const rng of ranges) {
+              const rRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  agg_interval: 12,
+                  campaign_type: "product_homepage_v2",
+                  start_time: rng.start_time,
+                  end_time: rng.end_time,
+                  need_roi_target_setting: false,
+                  filter_params: {
+                    campaign_type: "new_cpc_homepage"
+                  }
+                })
+              }).then(r => r.json()).catch(() => null);
 
-            if (rRes?.code === 0 && rRes.data?.report_aggregate) {
-              const agg = rRes.data.report_aggregate;
-              if (agg.cost !== undefined && agg.cost !== null) ads_expense_month = Math.round(Number(agg.cost) / 100000);
-              if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) ads_month_gmv = Math.round(Number(agg.broad_gmv) / 100000);
-              if (agg.broad_roi !== undefined && agg.broad_roi !== null) ads_month_roas = Number(agg.broad_roi);
+              let cost = 0, gmv = 0, roas = 0;
+              if (rRes?.code === 0 && rRes.data?.report_aggregate) {
+                const agg = rRes.data.report_aggregate;
+                if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
+                if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
+                if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
+              }
+              monthly_ads.push({
+                month_key: rng.month_key,
+                month_name: rng.month_name,
+                year: rng.year,
+                month: rng.month,
+                cost, gmv, roas
+              });
             }
           }
 
-          return { ads_balance, ads_expense_today, ads_expense_month, ads_month_roas, ads_month_gmv };
+          const totalCost = monthly_ads.reduce((s, m) => s + (m.cost || 0), 0);
+          return { ads_balance, ads_expense_today, ads_expense_month: totalCost, monthly_ads };
         } catch (e) {
           return null;
         }
       },
-      args: [startTimeSec, endTimeSec]
+      args: [monthRanges]
     });
     return results?.[0]?.result || null;
   } catch (e) {
@@ -288,13 +329,12 @@ async function fetchAdsDataViaTab(targetTabId, startTimeSec, endTimeSec) {
   }
 }
 
-async function fetchAdsPerformanceInfo(spcCds, startTimeSec, endTimeSec, targetTabId) {
+async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
   const result = {
     ads_balance: null,
     ads_expense_today: null,
     ads_expense_month: null,
-    ads_month_roas: null,
-    ads_month_gmv: null
+    monthly_ads: []
   };
 
   try {
@@ -318,48 +358,72 @@ async function fetchAdsPerformanceInfo(spcCds, startTimeSec, endTimeSec, targetT
       if (e !== undefined && e !== null) result.ads_expense_today = Math.round(Number(e) / 100000);
     }
 
-    // 2. Lấy chi phí theo tháng từ báo cáo get_time_graph (đã trace chính xác qua browser-skill)
-    if (startTimeSec && endTimeSec) {
-      const reportRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          agg_interval: 12,
-          campaign_type: "product_homepage_v2",
-          start_time: startTimeSec,
-          end_time: endTimeSec,
-          need_roi_target_setting: false,
-          filter_params: {
-            campaign_type: "new_cpc_homepage"
-          }
-        })
-      }).then(r => r.json()).catch(() => null);
+    // 2. Lấy chi phí theo TỪNG THÁNG từ báo cáo get_time_graph (đã trace chính xác qua browser-skill)
+    if (monthRanges && Array.isArray(monthRanges) && monthRanges.length > 0) {
+      const adsPromises = monthRanges.map(async (rng) => {
+        try {
+          const reportRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              agg_interval: 12,
+              campaign_type: "product_homepage_v2",
+              start_time: rng.start_time,
+              end_time: rng.end_time,
+              need_roi_target_setting: false,
+              filter_params: {
+                campaign_type: "new_cpc_homepage"
+              }
+            })
+          }).then(r => r.json()).catch(() => null);
 
-      if (reportRes?.code === 0 && reportRes.data?.report_aggregate) {
-        const agg = reportRes.data.report_aggregate;
-        if (agg.cost !== undefined && agg.cost !== null) result.ads_expense_month = Math.round(Number(agg.cost) / 100000);
-        if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) result.ads_month_gmv = Math.round(Number(agg.broad_gmv) / 100000);
-        if (agg.broad_roi !== undefined && agg.broad_roi !== null) result.ads_month_roas = Number(agg.broad_roi);
-      }
+          let cost = 0, gmv = 0, roas = 0;
+          if (reportRes?.code === 0 && reportRes.data?.report_aggregate) {
+            const agg = reportRes.data.report_aggregate;
+            if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
+            if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
+            if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
+          }
+          return {
+            month_key: rng.month_key,
+            month_name: rng.month_name,
+            year: rng.year,
+            month: rng.month,
+            cost, gmv, roas
+          };
+        } catch (err) {
+          return {
+            month_key: rng.month_key,
+            month_name: rng.month_name,
+            year: rng.year,
+            month: rng.month,
+            cost: 0, gmv: 0, roas: 0
+          };
+        }
+      });
+
+      result.monthly_ads = await Promise.all(adsPromises);
+      result.ads_expense_month = result.monthly_ads.reduce((s, m) => s + (m.cost || 0), 0);
     }
   } catch (e) {}
 
-  // 3. Fallback: Nếu fetch trong Service Worker thiếu dữ liệu, gọi executeScript trong ngữ cảnh Tab Shopee
-  if (result.ads_balance === null || result.ads_expense_today === null || result.ads_expense_month === null) {
+  // 3. Fallback: Nếu fetch trong Service Worker thiếu dữ liệu hoặc cost trống, gọi executeScript trong ngữ cảnh Tab Shopee
+  if (result.ads_balance === null || result.ads_expense_today === null || result.monthly_ads.length === 0 || result.monthly_ads.every(m => !m.cost)) {
     let tabId = targetTabId;
     if (!tabId) {
       const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" }).catch(() => []);
       if (tabs?.length > 0) tabId = tabs[0].id;
     }
     if (tabId) {
-      const tabData = await fetchAdsDataViaTab(tabId, startTimeSec, endTimeSec);
+      const tabData = await fetchAdsDataViaTab(tabId, monthRanges);
       if (tabData) {
         if (result.ads_balance === null && tabData.ads_balance !== null) result.ads_balance = tabData.ads_balance;
         if (result.ads_expense_today === null && tabData.ads_expense_today !== null) result.ads_expense_today = tabData.ads_expense_today;
-        if (result.ads_expense_month === null && tabData.ads_expense_month !== null) result.ads_expense_month = tabData.ads_expense_month;
-        if (result.ads_month_roas === null && tabData.ads_month_roas !== null) result.ads_month_roas = tabData.ads_month_roas;
-        if (result.ads_month_gmv === null && tabData.ads_month_gmv !== null) result.ads_month_gmv = tabData.ads_month_gmv;
+        if (tabData.monthly_ads && tabData.monthly_ads.length > 0) {
+          result.monthly_ads = tabData.monthly_ads;
+          result.ads_expense_month = tabData.ads_expense_month;
+        }
       }
     }
   }
@@ -672,9 +736,10 @@ async function performFullSync(customWebhookUrl, options = {}) {
 
     if (syncCancelRequested) {
       if (currentStreamBatch.length > 0) {
-        await postToGoogleSheet({ orders: currentStreamBatch, is_last_batch: true }, customWebhookUrl);
+        await postToGoogleSheet({ orders: currentStreamBatch, is_last_batch: false }, customWebhookUrl);
         totalOrdersSynced += currentStreamBatch.length;
       }
+      try { await postToGoogleSheet({ action: "setup_dashboard", is_last_batch: true }, customWebhookUrl); } catch (e) {}
       const syncDurationMs = Date.now() - syncStartTime;
       const syncDurationText = formatDuration(syncDurationMs);
       const cancelRes = {
@@ -691,26 +756,28 @@ async function performFullSync(customWebhookUrl, options = {}) {
     }
 
     totalOrdersSynced += currentStreamBatch.length;
-    broadcastProgress(totalOrdersSynced, targetTotal, `Đang chốt mẻ cuối ${currentStreamBatch.length} đơn & cập nhật Dashboard...`, "Hoàn tất", syncMode, monthsCount);
+    broadcastProgress(totalOrdersSynced, targetTotal, `Đang chốt mẻ cuối ${currentStreamBatch.length} đơn sang Sheet...`, "Ghi Sheet", syncMode, monthsCount);
 
-    // Tính timestamp khoảng thời gian tháng đồng bộ để lấy chi phí DVHT
-    const now = new Date();
-    let adsStartTimeSec = null;
-    let adsEndTimeSec = Math.floor(new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).getTime() / 1000);
-    if (syncMode === "months" && monthsCount >= 1) {
-      const sDate = new Date(now.getFullYear(), now.getMonth() - (monthsCount - 1), 1, 0, 0, 0);
-      adsStartTimeSec = Math.floor(sDate.getTime() / 1000);
-    } else {
-      const sDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-      adsStartTimeSec = Math.floor(sDate.getTime() / 1000);
+    // 1. Gửi mẻ đơn hàng cuối cùng sang DonHangShopee (nếu còn)
+    if (currentStreamBatch.length > 0) {
+      const lastBatchOrders = [...currentStreamBatch];
+      currentStreamBatch = [];
+      await postToGoogleSheet({ orders: lastBatchOrders, is_last_batch: false }, customWebhookUrl);
     }
 
-    const adsInfo = await fetchAdsPerformanceInfo(spcCds, adsStartTimeSec, adsEndTimeSec, activeTabId);
+    // 2. Tính timestamp theo TỪNG THÁNG và lấy chi phí Shopee Ads độc lập cho mỗi tháng
+    broadcastProgress(totalOrdersSynced, targetTotal, `Đang lấy chi phí Quảng cáo (Ads) cho ${monthsCount} tháng...`, "Quảng cáo Ads", syncMode, monthsCount);
+    const monthRanges = getMonthTimestampRanges(syncMode === "months" ? monthsCount : 6);
+    const adsInfo = await fetchAdsPerformanceInfo(spcCds, monthRanges, activeTabId);
+
+    // 3. Kích hoạt cập nhật hoàn chỉnh Dashboard với đầy đủ chi phí theo từng tháng
+    broadcastProgress(totalOrdersSynced, targetTotal, `Đang cập nhật bảng Live Dashboard...`, "Cập nhật Dashboard", syncMode, monthsCount);
     const finalSheetResult = await postToGoogleSheet({
-      orders: currentStreamBatch,
+      action: "setup_dashboard",
       ads_balance: adsInfo.ads_balance,
       ads_expense_today: adsInfo.ads_expense_today,
       ads_expense_month: adsInfo.ads_expense_month,
+      monthly_ads: adsInfo.monthly_ads,
       is_last_batch: true
     }, customWebhookUrl);
 

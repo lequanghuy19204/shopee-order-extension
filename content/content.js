@@ -150,6 +150,49 @@
     return null;
   }
 
+  // Lấy chi tiết báo cáo Dịch vụ hiển thị theo từng tháng
+  async function fetchAdsReportMonthlyDirect(monthRanges) {
+    try {
+      const match = document.cookie.match(/SPC_CDS=([^;]+)/);
+      const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
+      const results = await Promise.all((monthRanges || []).map(async (rng) => {
+        const res = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            agg_interval: 12,
+            campaign_type: "product_homepage_v2",
+            start_time: rng.start_time,
+            end_time: rng.end_time,
+            need_roi_target_setting: false,
+            filter_params: {
+              campaign_type: "new_cpc_homepage"
+            }
+          })
+        }).then(r => r.json()).catch(() => null);
+
+        let cost = 0, gmv = 0, roas = 0;
+        if (res?.code === 0 && res.data?.report_aggregate) {
+          const agg = res.data.report_aggregate;
+          if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
+          if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
+          if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
+        }
+        return {
+          month_key: rng.month_key,
+          month_name: rng.month_name,
+          year: rng.year,
+          month: rng.month,
+          cost, gmv, roas
+        };
+      }));
+      return results;
+    } catch (e) {
+      return [];
+    }
+  }
+
   // Lắng nghe tiến trình đồng bộ thời gian thực & hỗ trợ background lấy doanh thu
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "sync_progress") {
@@ -162,6 +205,10 @@
     }
     if (msg.action === "fetch_ads_report") {
       fetchAdsReportDirect(msg.startTime, msg.endTime).then(data => sendResponse({ success: true, data }));
+      return true;
+    }
+    if (msg.action === "fetch_ads_report_months") {
+      fetchAdsReportMonthlyDirect(msg.monthRanges).then(data => sendResponse({ success: true, data }));
       return true;
     }
     if (msg.action === "batch_fetch_income") {

@@ -212,18 +212,15 @@ function handleShopeePost(e) {
     else if (data.order_sn) ordersList = [data];
 
     if (data.action === "setup_dashboard" || data.refresh_dashboard) {
-      try { setupDashboard(); } catch (e) {}
-      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
-        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
-      }
+      try { setupDashboard(data); } catch (e) { Logger.log("Lỗi setupDashboard: " + e.toString()); }
       return ContentService.createTextOutput(JSON.stringify({
         success: true, message: "Đã cập nhật lại toàn bộ Dashboard thành công!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
     if (ordersList.length === 0) {
-      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
-        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
+      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined || data.monthly_ads) {
+        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month, data.monthly_ads);
         return ContentService.createTextOutput(JSON.stringify({
           success: true, message: "Đã cập nhật số dư & chi phí Dịch vụ hiển thị vào Dashboard!"
         })).setMimeType(ContentService.MimeType.JSON);
@@ -234,16 +231,18 @@ function handleShopeePost(e) {
     }
 
     const masterResult = upsertOrdersToSheet(sheet, ordersList, isLastBatch);
+    SpreadsheetApp.flush();
 
     const batchMonths = new Set(ordersList.map(o => getMonthSheetName(o.created_at)));
     const updatedMonths = syncMonthlySheetsFromMaster(ss, isLastBatch ? null : Array.from(batchMonths));
+    SpreadsheetApp.flush();
 
     if (isLastBatch) {
-      try { setupDashboard(); } catch (errDb) {}
-    }
-
-    if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
-      updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
+      try { setupDashboard(data); } catch (errDb) { Logger.log("Lỗi setupDashboard last batch: " + errDb.toString()); }
+    } else {
+      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined || data.monthly_ads) {
+        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month, data.monthly_ads);
+      }
     }
 
     const executionTimeMs = Date.now() - startTime, monthTag = updatedMonths.length > 0 ? ` [${updatedMonths.join(", ")}]` : "";
@@ -335,30 +334,62 @@ function sortByNewestCreated() {
   SpreadsheetApp.getUi().alert(`✅ Đã sắp xếp lại ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!`);
 }
 
-function setupDashboard() {
+function setupDashboard(adsData) {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let db = ss.getSheetByName("Dashboard");
 
-  // Lưu lại giá trị số dư & chi phí DVHT nếu đã tồn tại trước đó để không bị mất khi reset bảng
-  let savedBalance = 0, savedExpToday = 0, savedExpMonth = 0, savedAdsDate = new Date();
+  // 1. Quản lý lưu trữ & phục hồi thông tin Ads
+  const props = PropertiesService.getScriptProperties();
+  if (adsData) {
+    try {
+      if (adsData.ads_balance !== undefined && adsData.ads_balance !== null && adsData.ads_balance !== "") {
+        props.setProperty("SHOPEE_ADS_BALANCE", String(adsData.ads_balance));
+      }
+      if (adsData.ads_expense_today !== undefined && adsData.ads_expense_today !== null && adsData.ads_expense_today !== "") {
+        props.setProperty("SHOPEE_ADS_TODAY", String(adsData.ads_expense_today));
+      }
+      if (adsData.monthly_ads && Array.isArray(adsData.monthly_ads) && adsData.monthly_ads.length > 0) {
+        props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(adsData.monthly_ads));
+      }
+      props.setProperty("SHOPEE_ADS_DATE", new Date().toISOString());
+    } catch (e) {}
+  }
+
+  let savedBalance = Number(props.getProperty("SHOPEE_ADS_BALANCE")) || 0;
+  let savedExpToday = Number(props.getProperty("SHOPEE_ADS_TODAY")) || 0;
+  let savedAdsDate = new Date();
+  const dStr = props.getProperty("SHOPEE_ADS_DATE");
+  if (dStr) {
+    const pD = new Date(dStr);
+    if (!isNaN(pD.getTime())) savedAdsDate = pD;
+  }
+
+  let savedMonthlyAds = [];
+  const mAdsJson = props.getProperty("SHOPEE_MONTHLY_ADS");
+  if (mAdsJson) {
+    try { savedMonthlyAds = JSON.parse(mAdsJson); } catch (e) {}
+  }
+
+  // Fallback nếu trong properties chưa có: đọc từ các ô hiện tại trước khi clear
   if (db && db.getLastRow() >= 22) {
     try {
-      const fBal = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN").findNext();
-      const fToday = db.createTextFinder("🔥 CHI PHÍ HÔM NAY").findNext();
-      const fMonth = db.createTextFinder("📅 CHI PHÍ THEO THÁNG").findNext();
-      const fTime = db.createTextFinder("🕒 CẬP NHẬT").findNext();
-      if (fBal) savedBalance = Number(db.getRange(fBal.getRow() + 1, fBal.getColumn()).getValue()) || 0;
-      if (fToday) savedExpToday = Number(db.getRange(fToday.getRow() + 1, fToday.getColumn()).getValue()) || 0;
-      if (fMonth) savedExpMonth = Number(db.getRange(fMonth.getRow() + 1, fMonth.getColumn()).getValue()) || 0;
-      if (fTime) {
-        const d = db.getRange(fTime.getRow() + 1, fTime.getColumn()).getValue();
-        if (d instanceof Date) savedAdsDate = d;
+      if (!savedBalance) {
+        const fBal = db.createTextFinder("SỐ DƯ TÀI KHOẢN").matchEntireCell(false).findNext();
+        if (fBal) savedBalance = Number(db.getRange(fBal.getRow() + 1, fBal.getColumn()).getValue()) || 0;
+      }
+      if (!savedExpToday) {
+        const fToday = db.createTextFinder("CHI PHÍ HÔM NAY").matchEntireCell(false).findNext();
+        if (fToday) savedExpToday = Number(db.getRange(fToday.getRow() + 1, fToday.getColumn()).getValue()) || 0;
       }
     } catch (e) {}
   }
 
-  if (!db) db = ss.insertSheet("Dashboard", 0);
-  else { ss.setActiveSheet(db); ss.moveActiveSheet(1); }
+  // 2. Chuẩn bị sheet Dashboard (an toàn trong cả ngữ cảnh Web App lẫn Menu UI)
+  if (!db) {
+    db = ss.insertSheet("Dashboard", 0);
+  } else {
+    try { ss.setActiveSheet(db); } catch (e) {}
+  }
   db.clear();
 
   db.getRange("A1:M1").merge().setValue("📊 BÁO CÁO TỔNG QUAN KINH DOANH SHOPEE (LIVE DASHBOARD)")
@@ -417,6 +448,7 @@ function setupDashboard() {
   db.getRange("A11:G11").setValues([["Tháng/Năm", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "ROAS", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
+  SpreadsheetApp.flush();
   const masterSheet = ss.getSheetByName(SHEET_NAME);
   const monthMap = new Map();
   if (masterSheet && masterSheet.getLastRow() >= 3) {
@@ -438,9 +470,12 @@ function setupDashboard() {
 
   const sortedMonths = Array.from(monthMap.values()).sort((a, b) => b.getTime() - a.getTime());
   const N = sortedMonths.length, endRow = 11 + N;
+  const adsTotR = 24 + N;
+
   const mFormulas = [];
   for (let i = 0; i < N; i++) {
     const r = 12 + i, mDate = sortedMonths[i];
+    const adsR = 24 + i;
     const formQtyMonth = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
     const formProdMonth = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
 
@@ -450,7 +485,7 @@ function setupDashboard() {
       formQtyMonth,
       formProdMonth,
       `=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
-      `=IFERROR(D${r}/$L$22, 0)`,
+      `=IFERROR(D${r}/J${adsR}, 0)`,
       `="Tháng " & (${mDate.getMonth() + 1})`
     ]);
   }
@@ -526,35 +561,75 @@ function setupDashboard() {
   db.getRange("K22").setValue(savedExpToday).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
   db.getRange("K21:K22").setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
 
-  db.getRange("L21").setValue("📅 CHI PHÍ THEO THÁNG").setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
-  db.getRange("L22").setValue(savedExpMonth).setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("L21").setValue("⚡ TỔNG CHI PHÍ THÁNG").setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("L22").setFormula(`=J${adsTotR}`).setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
   db.getRange("L21:L22").setBorder(true, true, true, true, null, null, "#F9E79F", SpreadsheetApp.BorderStyle.SOLID);
 
   db.getRange("M21").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
   db.getRange("M22").setValue(savedAdsDate).setBackground("#EAEDED").setFontColor("#333").setFontSize(9).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
   db.getRange("M21:M22").setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
 
+  // Bảng chi tiết chi phí Quảng cáo theo từng tháng (Rows 23+)
+  db.getRange("I23:M23").setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setFontSize(9.5).setHorizontalAlignment("center");
+  db.getRange("J23:K23").merge();
+  db.getRange("I23").setValue("Tháng/Năm");
+  db.getRange("J23").setValue("Chi phí DVHT");
+  db.getRange("L23").setValue("Doanh thu Ads");
+  db.getRange("M23").setValue("ROAS Shopee");
+
+  const adsMap = new Map();
+  if (savedMonthlyAds && Array.isArray(savedMonthlyAds)) {
+    savedMonthlyAds.forEach(item => {
+      if (item && item.month_key) adsMap.set(item.month_key, item);
+    });
+  }
+
+  for (let i = 0; i < N; i++) {
+    const rowIdx = 24 + i;
+    const mDate = sortedMonths[i];
+    const mKey = `${mDate.getFullYear()}-${String(mDate.getMonth() + 1).padStart(2, "0")}`;
+    const adsItem = adsMap.get(mKey);
+    const mCost = adsItem ? Number(adsItem.cost || 0) : 0;
+    const mGmv = adsItem ? Number(adsItem.gmv || 0) : 0;
+    const mRoas = adsItem && adsItem.roas ? Number(adsItem.roas) : 0;
+
+    db.getRange(`I${rowIdx}:M${rowIdx}`).setBackground("#FFF");
+    db.getRange(`I${rowIdx}`).setFormula(`="Tháng " & TEXT(A${12 + i}, "MM/yyyy")`).setHorizontalAlignment("center").setFontWeight("bold").setFontSize(9.5);
+    db.getRange(`J${rowIdx}:K${rowIdx}`).merge().setValue(mCost).setHorizontalAlignment("right").setFontWeight("bold").setFontColor("#922B21").setNumberFormat('#,##0 "₫"');
+    db.getRange(`L${rowIdx}`).setValue(mGmv).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"');
+    if (mRoas > 0) {
+      db.getRange(`M${rowIdx}`).setValue(mRoas).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#D35400").setNumberFormat("#,##0.00");
+    } else {
+      db.getRange(`M${rowIdx}`).setFormula(`=IFERROR(L${rowIdx}/J${rowIdx}, 0)`).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#D35400").setNumberFormat("#,##0.00");
+    }
+    db.getRange(`I${rowIdx}:M${rowIdx}`).setBorder(true, true, true, true, null, null, "#D5D8DC", SpreadsheetApp.BorderStyle.SOLID);
+    db.setRowHeight(rowIdx, 24);
+  }
+
+  // Dòng Tổng chi phí Ads (Row adsTotR = 24 + N)
+  db.getRange(`I${adsTotR}:M${adsTotR}`).setBackground("#EAEDED").setFontWeight("bold");
+  db.getRange(`I${adsTotR}`).setValue(N > 1 ? `⭐ TỔNG CHI PHÍ (${N}T)` : "⭐ TỔNG CHI PHÍ").setHorizontalAlignment("center").setFontColor("#C0392B");
+  db.getRange(`J${adsTotR}:K${adsTotR}`).merge().setFormula(`=SUM(J24:J${23 + N})`).setHorizontalAlignment("right").setFontColor("#922B21").setNumberFormat('#,##0 "₫"');
+  db.getRange(`L${adsTotR}`).setFormula(`=SUM(L24:L${23 + N})`).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"');
+  db.getRange(`M${adsTotR}`).setFormula(`=IFERROR(L${adsTotR}/J${adsTotR}, 0)`).setHorizontalAlignment("center").setFontColor("#D35400").setNumberFormat("#,##0.00");
+  db.getRange(`I${adsTotR}:M${adsTotR}`).setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
+  db.setRowHeight(adsTotR, 26);
+
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 80, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
 }
 
-function updateDashboardAdsInfo(ss, balance, expenseToday, expenseMonth) {
+function updateDashboardAdsInfo(ss, balance, expenseToday, expenseMonth, monthlyAds) {
   try {
-    let db = ss.getSheetByName("Dashboard");
-    if (!db) return;
-    const finder = db.createTextFinder("SỐ DƯ TÀI KHOẢN").matchEntireCell(false).findNext();
-    if (finder) {
-      const r = finder.getRow() + 1;
-      const balCol = finder.getColumn();
-      const efToday = db.createTextFinder("CHI PHÍ HÔM NAY").matchEntireCell(false).findNext() || db.createTextFinder("CHI PHÍ DVHT HÔM NAY").matchEntireCell(false).findNext();
-      const efMonth = db.createTextFinder("CHI PHÍ THEO THÁNG").matchEntireCell(false).findNext();
-      const tf = db.createTextFinder("CẬP NHẬT").matchEntireCell(false).findNext();
-      if (balance !== undefined && balance !== null && balance !== "") db.getRange(r, balCol).setValue(Number(balance));
-      if (expenseToday !== undefined && expenseToday !== null && expenseToday !== "" && efToday) db.getRange(r, efToday.getColumn()).setValue(Number(expenseToday));
-      if (expenseMonth !== undefined && expenseMonth !== null && expenseMonth !== "" && efMonth) db.getRange(r, efMonth.getColumn()).setValue(Number(expenseMonth));
-      if (tf) db.getRange(r, tf.getColumn()).setValue(new Date());
-    }
-  } catch (e) {}
+    setupDashboard({
+      ads_balance: balance,
+      ads_expense_today: expenseToday,
+      ads_expense_month: expenseMonth,
+      monthly_ads: monthlyAds
+    });
+  } catch (e) {
+    Logger.log("Lỗi updateDashboardAdsInfo: " + e.toString());
+  }
 }
 
 function forceUpdateCode() {
@@ -563,7 +638,7 @@ function forceUpdateCode() {
 
 // Xuất các hàm để hỗ trợ chế độ Loader.gs
 try {
-  ["handleShopeePost", "handleShopeeGet", "setupDashboard", "splitOrdersToMonthlySheets", "sortByNewestCreated", "setupSheet", "formatSheetTemplate", "upsertOrdersToSheet", "syncMonthlySheetsFromMaster"]
+  ["handleShopeePost", "handleShopeeGet", "setupDashboard", "splitOrdersToMonthlySheets", "sortByNewestCreated", "setupSheet", "formatSheetTemplate", "upsertOrdersToSheet", "syncMonthlySheetsFromMaster", "updateDashboardAdsInfo"]
     .forEach(fn => { globalThis[fn] = eval(fn); });
   globalThis.onOpenCore = onOpen;
 } catch (e) {}
