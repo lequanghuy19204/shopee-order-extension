@@ -239,20 +239,13 @@ function handleShopeePost(e) {
       updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today);
     }
 
-    const executionTimeMs = Date.now() - startTime;
-    const monthTag = updatedMonths.length > 0 ? ` [${updatedMonths.join(", ")}]` : "";
-
+    const executionTimeMs = Date.now() - startTime, monthTag = updatedMonths.length > 0 ? ` [${updatedMonths.join(", ")}]` : "";
+    const msg = isLastBatch
+      ? `Đã hoàn tất đồng bộ ${masterResult.total} đơn sang DonHangShopee và toàn bộ các Sheet Tháng${monthTag} (${masterResult.created} mới, ${masterResult.updated} cập nhật) [${executionTimeMs}ms]`
+      : `Đã nạp lô ${ordersList.length} đơn sang DonHangShopee & các Sheet Tháng${monthTag} [${executionTimeMs}ms]`;
     return ContentService.createTextOutput(JSON.stringify({
-      success: true,
-      message: isLastBatch
-        ? `Đã hoàn tất đồng bộ ${masterResult.total} đơn sang DonHangShopee và toàn bộ các Sheet Tháng${monthTag} (${masterResult.created} mới, ${masterResult.updated} cập nhật) [${executionTimeMs}ms]`
-        : `Đã nạp lô ${ordersList.length} đơn sang DonHangShopee & các Sheet Tháng${monthTag} [${executionTimeMs}ms]`,
-      total: masterResult.total,
-      created: masterResult.created,
-      updated: masterResult.updated,
-      months: updatedMonths,
-      is_last_batch: isLastBatch,
-      executionTimeMs: executionTimeMs
+      success: true, message: msg, total: masterResult.total, created: masterResult.created,
+      updated: masterResult.updated, months: updatedMonths, is_last_batch: isLastBatch, executionTimeMs
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
@@ -315,39 +308,21 @@ function syncMonthlySheetsFromMaster(ss, targetMonths) {
 }
 
 function splitOrdersToMonthlySheets() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  const masterSheet = ss.getSheetByName(SHEET_NAME);
-  if (!masterSheet) {
-    SpreadsheetApp.getUi().alert("⚠️ Không tìm thấy sheet '" + SHEET_NAME + "'!");
-    return;
-  }
-  const values = masterSheet.getDataRange().getValues();
-  if (values.length < 3) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet(), mSheet = ss.getSheetByName(SHEET_NAME);
+  if (!mSheet || mSheet.getLastRow() < 3) {
     SpreadsheetApp.getUi().alert("⚠️ Chưa có đơn hàng nào trong sheet '" + SHEET_NAME + "' để phân loại!");
     return;
   }
-  const updatedMonths = syncMonthlySheetsFromMaster(ss, null);
-  const monthNames = updatedMonths.join(", ");
-  SpreadsheetApp.getUi().alert(`🎉 Đã đồng bộ 100% tất cả 14 cột từ Sheet chính '${SHEET_NAME}' sang các sheet tháng: ${monthNames}!\n⭐ Toàn bộ thông tin (Ngày tạo, mã đơn, vận đơn, ĐVVC, khách hàng, chi tiết sản phẩm, 3 cột tiền, trạng thái, hoàn hủy) đã được cập nhật đồng bộ hoàn toàn.`);
+  const updated = syncMonthlySheetsFromMaster(ss, null);
+  SpreadsheetApp.getUi().alert(`🎉 Đã đồng bộ 100% tất cả 14 cột sang các sheet: ${updated.join(", ")}!`);
 }
 
 function sortByNewestCreated() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
+  const ss = SpreadsheetApp.getActiveSpreadsheet(), sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
   const values = sheet.getDataRange().getValues();
   if (values.length < 3) return;
-  const rows = [];
-  for (let i = 2; i < values.length; i++) {
-    const r = values[i];
-    const sn = String(r[1] || "").trim();
-    if (sn && !sn.toUpperCase().includes("TỔNG CỘNG")) rows.push(r);
-  }
-  rows.sort((a, b) => {
-    const tA = parseOrderDate(a[0]).getTime();
-    const tB = parseOrderDate(b[0]).getTime();
-    if (tB !== tA) return tB - tA;
-    return String(b[1] || "").localeCompare(String(a[1] || ""));
-  });
+  const rows = values.slice(2).filter(r => r[1] && !String(r[1]).toUpperCase().includes("TỔNG CỘNG"));
+  rows.sort((a, b) => parseOrderDate(b[0]).getTime() - parseOrderDate(a[0]).getTime());
   if (rows.length > 0) sheet.getRange(3, 1, rows.length, 14).setValues(rows);
   sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
   SpreadsheetApp.getUi().alert(`✅ Đã sắp xếp lại ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!`);
@@ -385,11 +360,32 @@ function setupDashboard() {
   db.getRange("A7:G7").setValues([["Tháng/Năm", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "Khách thanh toán", "Tỷ lệ Payout"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
+  const masterSheet = ss.getSheetByName(SHEET_NAME);
+  const monthMap = new Map();
+  if (masterSheet && masterSheet.getLastRow() >= 3) {
+    const dates = masterSheet.getRange(3, 1, masterSheet.getLastRow() - 2, 1).getValues();
+    dates.forEach(r => {
+      if (r[0]) {
+        const d = parseOrderDate(r[0]);
+        if (!isNaN(d.getTime())) {
+          const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
+          if (!monthMap.has(key)) monthMap.set(key, new Date(d.getFullYear(), d.getMonth(), 1));
+        }
+      }
+    });
+  }
+  if (monthMap.size === 0) {
+    const now = new Date();
+    monthMap.set(now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0"), new Date(now.getFullYear(), now.getMonth(), 1));
+  }
+
+  const sortedMonths = Array.from(monthMap.values()).sort((a, b) => b.getTime() - a.getTime());
+  const N = sortedMonths.length, endRow = 7 + N;
   const mFormulas = [];
-  for (let m = 0; m < 6; m++) {
-    const r = 8 + m;
+  for (let i = 0; i < N; i++) {
+    const r = 8 + i, mDate = sortedMonths[i];
     mFormulas.push([
-      m === 0 ? "=DATE(YEAR(TODAY()), MONTH(TODAY()), 1)" : `=EDATE(A${r - 1}, -1)`,
+      `=DATE(${mDate.getFullYear()}, ${mDate.getMonth() + 1}, 1)`,
       `=COUNTIFS('DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$B$3:$B$50000, "<>")`,
       `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
       `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
@@ -398,20 +394,33 @@ function setupDashboard() {
       `=IFERROR(E${r}/D${r}, 0)`
     ]);
   }
-  db.getRange("A8:G13").setFormulas(mFormulas);
-  db.getRange("A8:A13").setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
-  db.getRange("B8:C13").setHorizontalAlignment("center").setNumberFormat("#,##0");
-  db.getRange("D8:F13").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("E8:E13").setFontWeight("bold").setFontColor("#1E8449");
-  db.getRange("G8:G13").setHorizontalAlignment("center").setNumberFormat("0.0%");
+  db.getRange(`A8:G${endRow}`).setFormulas(mFormulas);
+  db.getRange(`A8:A${endRow}`).setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
+  db.getRange(`B8:C${endRow}`).setHorizontalAlignment("center").setNumberFormat("#,##0");
+  db.getRange(`D8:F${endRow}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange(`E8:E${endRow}`).setFontWeight("bold").setFontColor("#1E8449");
+  db.getRange(`G8:G${endRow}`).setHorizontalAlignment("center").setNumberFormat("0.0%");
 
-  db.getRange("A14:G14").setFormulas([["=0", "=SUM(B8:B13)", "=SUM(C8:C13)", "=SUM(D8:D13)", "=SUM(E8:E13)", "=SUM(F8:F13)", "=IFERROR(E14/D14, 0)"]])
+  const totR = 8 + N;
+  db.getRange(`A${totR}:G${totR}`).setFormulas([["=0", `=SUM(B8:B${endRow})`, `=SUM(C8:C${endRow})`, `=SUM(D8:D${endRow})`, `=SUM(E8:E${endRow})`, `=SUM(F8:F${endRow})`, `=IFERROR(E${totR}/D${totR}, 0)`]])
     .setFontWeight("bold").setBackground("#EAEDED").setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
-  db.getRange("A14").setValue("⭐ TỔNG 6 THÁNG").setHorizontalAlignment("center").setFontColor("#C0392B");
-  db.getRange("B14:C14").setHorizontalAlignment("center").setNumberFormat("#,##0");
-  db.getRange("D14:F14").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("E14").setFontColor("#1E8449");
-  db.getRange("G14").setHorizontalAlignment("center").setNumberFormat("0.0%");
+  db.getRange(`A${totR}`).setValue(N > 1 ? `⭐ TỔNG CỘNG (${N} THÁNG)` : "⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B");
+  db.getRange(`B${totR}:C${totR}`).setHorizontalAlignment("center").setNumberFormat("#,##0");
+  db.getRange(`D${totR}:F${totR}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange(`E${totR}`).setFontColor("#1E8449");
+  db.getRange(`G${totR}`).setHorizontalAlignment("center").setNumberFormat("0.0%");
+
+  const adsR = Math.max(20, totR + 2);
+  db.getRange(`A${adsR}:G${adsR}`).merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+  db.getRange(`A${adsR + 1}:C${adsR + 1}`).merge().setValue("💰 SỐ DƯ TÀI KHOẢN DVHT").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
+  db.getRange(`A${adsR + 2}:C${adsR + 2}`).merge().setValue(0).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange(`A${adsR + 1}:C${adsR + 2}`).setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
+  db.getRange(`D${adsR + 1}:F${adsR + 1}`).merge().setValue("🔥 CHI PHÍ DVHT HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
+  db.getRange(`D${adsR + 2}:F${adsR + 2}`).merge().setValue(0).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange(`D${adsR + 1}:F${adsR + 2}`).setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
+  db.getRange(`G${adsR + 1}`).setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
+  db.getRange(`G${adsR + 2}`).setValue(new Date()).setBackground("#EAEDED").setFontColor("#333").setFontSize(9.5).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
+  db.getRange(`G${adsR + 1}:G${adsR + 2}`).setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
 
   db.getRange("I6:M6").merge().setValue("📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
@@ -428,11 +437,13 @@ function setupDashboard() {
   statuses.forEach((row, i) => {
     const r = 8 + i;
     db.getRange(`I${r}:M${r}`).setValues([[row[0], "", "", "", row[4]]]);
-    db.getRange(`J${r}`).setFormula(row[1]).setHorizontalAlignment("center").setNumberFormat("#,##0");
-    db.getRange(`K${r}`).setFormula(row[2]).setHorizontalAlignment("center").setNumberFormat("0.0%");
-    db.getRange(`L${r}`).setFormula(row[3]).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-    db.getRange(`M${r}`).setHorizontalAlignment("center");
+    db.getRange(`J${r}`).setFormula(row[1]); db.getRange(`K${r}`).setFormula(row[2]); db.getRange(`L${r}`).setFormula(row[3]);
   });
+  db.getRange("J8:K12").setHorizontalAlignment("center");
+  db.getRange("J8:J12").setNumberFormat("#,##0");
+  db.getRange("K8:K12").setNumberFormat("0.0%");
+  db.getRange("L8:L12").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("M8:M12").setHorizontalAlignment("center");
 
   db.getRange("I14:M14").merge().setValue("🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
   db.getRange("I15:M15").setValues([["ĐVVC", "Số đơn", "Tỷ lệ", "Tiền khách trả", "Đánh giá"]]).setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
@@ -444,24 +455,13 @@ function setupDashboard() {
   ].forEach((row, i) => {
     const r = 16 + i;
     db.getRange(`I${r}:M${r}`).setValues([[row[0], "", "", "", row[4]]]);
-    db.getRange(`J${r}`).setFormula(row[1]).setHorizontalAlignment("center").setNumberFormat("#,##0");
-    db.getRange(`K${r}`).setFormula(row[2]).setHorizontalAlignment("center").setNumberFormat("0.0%");
-    db.getRange(`L${r}`).setFormula(row[3]).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-    db.getRange(`M${r}`).setHorizontalAlignment("center");
+    db.getRange(`J${r}`).setFormula(row[1]); db.getRange(`K${r}`).setFormula(row[2]); db.getRange(`L${r}`).setFormula(row[3]);
   });
-
-  // Khối Dịch Vụ Hiển Thị (Quảng cáo Shopee PAS)
-  db.getRange("A16:G16").merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)")
-    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-  db.getRange("A17:C17").merge().setValue("💰 SỐ DƯ TÀI KHOẢN DVHT").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange("A18:C18").merge().setValue(0).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("A17:C18").setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
-  db.getRange("D17:F17").merge().setValue("🔥 CHI PHÍ DVHT HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange("D18:F18").merge().setValue(0).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("D17:F18").setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
-  db.getRange("G17").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange("G18").setValue(new Date()).setBackground("#EAEDED").setFontColor("#333").setFontSize(9.5).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
-  db.getRange("G17:G18").setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
+  db.getRange("J16:K18").setHorizontalAlignment("center");
+  db.getRange("J16:J18").setNumberFormat("#,##0");
+  db.getRange("K16:K18").setNumberFormat("0.0%");
+  db.getRange("L16:L18").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("M16:M18").setHorizontalAlignment("center");
 
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 65, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
@@ -471,9 +471,13 @@ function updateDashboardAdsInfo(ss, balance, expense) {
   try {
     let db = ss.getSheetByName("Dashboard");
     if (!db) return;
-    if (balance !== undefined && balance !== null && balance !== "") db.getRange("A18").setValue(Number(balance));
-    if (expense !== undefined && expense !== null && expense !== "") db.getRange("D18").setValue(Number(expense));
-    db.getRange("G18").setValue(new Date());
+    const finder = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN DVHT").findNext();
+    if (finder) {
+      const r = finder.getRow() + 1, ef = db.createTextFinder("🔥 CHI PHÍ DVHT HÔM NAY").findNext(), tf = db.createTextFinder("🕒 CẬP NHẬT").findNext();
+      if (balance !== undefined && balance !== null && balance !== "") db.getRange(r, 1).setValue(Number(balance));
+      if (expense !== undefined && expense !== null && expense !== "" && ef) db.getRange(r, ef.getColumn()).setValue(Number(expense));
+      if (tf) db.getRange(r, tf.getColumn()).setValue(new Date());
+    }
   } catch (e) {}
 }
 
@@ -483,15 +487,8 @@ function forceUpdateCode() {
 
 // Xuất các hàm để hỗ trợ chế độ Loader.gs
 try {
-  globalThis.handleShopeePost = handleShopeePost;
-  globalThis.handleShopeeGet = handleShopeeGet;
+  ["handleShopeePost", "handleShopeeGet", "setupDashboard", "splitOrdersToMonthlySheets", "sortByNewestCreated", "setupSheet", "formatSheetTemplate", "upsertOrdersToSheet", "syncMonthlySheetsFromMaster"]
+    .forEach(fn => { globalThis[fn] = eval(fn); });
   globalThis.onOpenCore = onOpen;
-  globalThis.setupDashboard = setupDashboard;
-  globalThis.splitOrdersToMonthlySheets = splitOrdersToMonthlySheets;
-  globalThis.sortByNewestCreated = sortByNewestCreated;
-  globalThis.setupSheet = setupSheet;
-  globalThis.formatSheetTemplate = formatSheetTemplate;
-  globalThis.upsertOrdersToSheet = upsertOrdersToSheet;
-  globalThis.syncMonthlySheetsFromMaster = syncMonthlySheetsFromMaster;
 } catch (e) {}
 
