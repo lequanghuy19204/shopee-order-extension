@@ -95,21 +95,27 @@
     return desc.replace(/\s*\{timestamp\}\s*/gi, " ").trim();
   }
 
-  async function fetchOrderDetailAndIncome(orderId, spcCds) {
+  async function fetchOrderDetailAndIncome(orderId, spcCds, isCancelled = false) {
     try {
-      const [detailRes, incomeRes] = await Promise.all([
+      const calls = [
         fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${spcCds}&SPC_CDS_VER=2&order_id=${orderId}`, {
           method: "GET", credentials: "include"
-        }).then(r => r.json()).catch(() => null),
-        fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
         }).then(r => r.json()).catch(() => null)
-      ]);
+      ];
+      if (!isCancelled) {
+        calls.push(
+          fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+            body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
+          }).then(r => r.json()).catch(() => null)
+        );
+      }
+
+      const [detailRes, incomeRes] = await Promise.all(calls);
 
       const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
 
-      let product_amount = null, escrow_amount = null, buyer_paid_amount = null;
+      let product_amount = null, escrow_amount = isCancelled ? 0 : null, buyer_paid_amount = null;
       if (incomeRes?.code === 0 && incomeRes.data) {
         const sBreakdown = incomeRes.data.seller_income_breakdown?.breakdown || [];
         const bBreakdown = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
@@ -298,7 +304,9 @@
             sliceCards.map(async (c) => {
               const oid = c.order_ext_info?.order_id || c.order_id;
               if (oid) {
-                const info = await fetchOrderDetailAndIncome(oid, spcCds);
+                const status = (c.status_info?.status || "").toLowerCase();
+                const isCancelled = status.includes("hủy") || status.includes("trả") || status.includes("hoàn");
+                const info = await fetchOrderDetailAndIncome(oid, spcCds, isCancelled);
                 if (info) extraMap.set(String(oid), info);
               }
             })

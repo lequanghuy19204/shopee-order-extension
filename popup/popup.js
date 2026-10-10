@@ -33,6 +33,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   const syncProgressPercent = document.getElementById("syncProgressPercent");
   const syncProgressBar = document.getElementById("syncProgressBar");
   const syncProgressDetail = document.getElementById("syncProgressDetail");
+  const btnCancelSync = document.getElementById("btnCancelSync");
 
   // Elements cho Lịch Trình Tự Động (Auto Sync)
   const toggleAutoSync = document.getElementById("toggleAutoSync");
@@ -171,12 +172,46 @@ document.addEventListener("DOMContentLoaded", async () => {
           second: "2-digit"
         });
         const count = status.lastSyncResult?.totalOrders || 0;
-        lastSyncInfo.textContent = `${timeStr} (${status.lastSyncResult?.success ? `Sync ${count} đơn` : "Lỗi"})`;
+        const resText = status.lastSyncResult?.cancelled
+          ? "Đã hủy"
+          : (status.lastSyncResult?.success ? `Sync ${count} đơn` : "Lỗi");
+        lastSyncInfo.textContent = `${timeStr} (${resText})`;
       } else {
         lastSyncInfo.textContent = "Chưa có";
       }
 
       startCountdownTicker();
+
+      // Khôi phục thanh tiến trình nếu đang có đồng bộ chạy ngầm
+      if (status.isSyncing && status.progress) {
+        const p = status.progress;
+        if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
+        if (syncProgressText) syncProgressText.textContent = p.title || "Đang đồng bộ...";
+        if (syncProgressPercent) syncProgressPercent.textContent = `${p.percent || 0}%`;
+        if (syncProgressBar) syncProgressBar.style.width = `${p.percent || 0}%`;
+        if (syncProgressDetail) syncProgressDetail.textContent = p.detail || `Đã xử lý ${p.current || 0}/${p.total || 0} đơn`;
+
+        if (btnCancelSync) {
+          btnCancelSync.classList.remove("hidden");
+          btnCancelSync.disabled = false;
+          btnCancelSync.textContent = "🛑 HỦY ĐỒNG BỘ";
+        }
+
+        const isMonths = p.syncMode === "months";
+        if (btnSyncMonths) btnSyncMonths.disabled = true;
+        if (btnSyncAll) btnSyncAll.disabled = true;
+        if (isMonths && syncMonthsSpinner) {
+          syncMonthsSpinner.classList.remove("hidden");
+          if (syncMonthsBtnText) syncMonthsBtnText.textContent = `Đang tải ${p.monthsCount || 1} tháng...`;
+        } else if (syncAllSpinner) {
+          syncAllSpinner.classList.remove("hidden");
+          if (syncAllBtnText) syncAllBtnText.textContent = "Đang tải toàn bộ đơn...";
+        }
+
+        showSyncNotice("info", `⏳ Tiến trình đồng bộ đang chạy ngầm (${p.percent || 0}%)...`);
+      } else if (!status.isSyncing) {
+        if (btnCancelSync) btnCancelSync.classList.add("hidden");
+      }
     });
   }
 
@@ -261,13 +296,44 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Lắng nghe tiến trình đồng bộ thời gian thực (Live Progress)
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "sync_progress") {
+      if (msg.isSyncing === false) {
+        if (btnSyncMonths) btnSyncMonths.disabled = false;
+        if (btnSyncAll) btnSyncAll.disabled = false;
+        if (syncMonthsSpinner) syncMonthsSpinner.classList.add("hidden");
+        if (syncAllSpinner) syncAllSpinner.classList.add("hidden");
+        if (syncMonthsBtnText) syncMonthsBtnText.textContent = "⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)";
+        if (syncAllBtnText) syncAllBtnText.textContent = "🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN (TẤT CẢ LỊCH SỬ)";
+        if (btnCancelSync) btnCancelSync.classList.add("hidden");
+        return;
+      }
+
       if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
       if (syncProgressText && msg.title) syncProgressText.textContent = msg.title;
       if (syncProgressPercent) syncProgressPercent.textContent = `${msg.percent || 0}%`;
       if (syncProgressBar) syncProgressBar.style.width = `${msg.percent || 0}%`;
       if (syncProgressDetail) syncProgressDetail.textContent = msg.detail || `Đã xử lý ${msg.current || 0}/${msg.total || 0} đơn`;
+      if (btnCancelSync) {
+        btnCancelSync.classList.remove("hidden");
+        btnCancelSync.disabled = false;
+        btnCancelSync.textContent = "🛑 HỦY ĐỒNG BỘ";
+      }
     }
   });
+
+  // Hủy tiến trình đồng bộ
+  if (btnCancelSync) {
+    btnCancelSync.addEventListener("click", () => {
+      if (confirm("Bạn có chắc chắn muốn hủy quá trình đồng bộ đang chạy?")) {
+        btnCancelSync.disabled = true;
+        btnCancelSync.textContent = "⏳ Đang dừng...";
+        chrome.runtime.sendMessage({ action: "cancel_sync" }, (res) => {
+          if (res && res.success) {
+            showSyncNotice("info", "🛑 " + (res.message || "Đang hủy tiến trình đồng bộ..."));
+          }
+        });
+      }
+    });
+  }
 
   // 3. NÚT ĐỒNG BỘ: HỖ TRỢ ĐỒNG BỘ THEO THÁNG & TOÀN BỘ ĐƠN (STREAMING BATCH)
   function triggerSync(syncMode) {
@@ -289,10 +355,16 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (activeBtnText) activeBtnText.textContent = isMonths ? `Đang tải ${monthsCount} tháng...` : "Đang tải toàn bộ đơn...";
 
     if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
-    if (syncProgressText) syncProgressText.textContent = isMonths ? `Đang đồng bộ ${monthsCount} tháng gần nhất...` : "Đang đồng bộ toàn bộ đơn...";
+    if (syncProgressText) syncProgressText.textContent = isMonths ? `Đang tính toán ${monthsCount} tháng gần nhất...` : "Đang chuẩn bị quét đơn...";
     if (syncProgressPercent) syncProgressPercent.textContent = "0%";
     if (syncProgressBar) syncProgressBar.style.width = "0%";
     if (syncProgressDetail) syncProgressDetail.textContent = "Đang kết nối Shopee API...";
+
+    if (btnCancelSync) {
+      btnCancelSync.classList.remove("hidden");
+      btnCancelSync.disabled = false;
+      btnCancelSync.textContent = "🛑 HỦY ĐỒNG BỘ";
+    }
 
     showSyncNotice("info", `⏳ Đang kết nối Shopee V3 API & đồng bộ ${isMonths ? `${monthsCount} tháng gần nhất` : "toàn bộ đơn hàng"}...`);
 
@@ -301,13 +373,20 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (btnSyncAll) btnSyncAll.disabled = false;
       if (activeSpinner) activeSpinner.classList.add("hidden");
       if (activeBtnText) activeBtnText.textContent = origText;
+      if (btnCancelSync) btnCancelSync.classList.add("hidden");
 
       if (chrome.runtime.lastError) {
         showSyncNotice("error", `❌ Lỗi kết nối: ${chrome.runtime.lastError.message}`);
         return;
       }
 
-      if (response && response.success) {
+      if (response && response.cancelled) {
+        showSyncNotice("info", `🛑 ${response.message || "Đã hủy đồng bộ theo yêu cầu."}`);
+        syncStatusFromBackground();
+        setTimeout(() => {
+          if (syncProgressContainer) syncProgressContainer.classList.add("hidden");
+        }, 4000);
+      } else if (response && response.success) {
         if (syncProgressBar) syncProgressBar.style.width = "100%";
         if (syncProgressPercent) syncProgressPercent.textContent = "100%";
         showSyncNotice("success", `🎉 ${response.message || "Đã đồng bộ đơn hàng thành công!"}`);

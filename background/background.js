@@ -1,4 +1,10 @@
 let isSyncingInProgress = false;
+let syncCancelRequested = false;
+
+let currentProgressState = {
+  isSyncing: false, current: 0, total: 0, percent: 0,
+  title: "", detail: "", syncMode: "all", monthsCount: 1
+};
 
 async function getSettings() {
   return new Promise(resolve => chrome.storage.local.get({
@@ -18,22 +24,26 @@ async function getSpcCds() {
   return "c621ebd7-5719-4be0-a244-06d8a82c0854";
 }
 
-function parseCreatedAtFromSn(orderSn) {
-  if (typeof orderSn === "string" && orderSn.length >= 6) {
-    const yy = 2000 + parseInt(orderSn.slice(0, 2), 10);
-    const mm = parseInt(orderSn.slice(2, 4), 10) - 1;
-    const dd = parseInt(orderSn.slice(4, 6), 10);
-    if (!isNaN(yy) && !isNaN(mm) && !isNaN(dd)) return new Date(yy, mm, dd, 0, 0, 0).toISOString();
+function getSnDateTimestamp(sn) {
+  if (typeof sn === "string" && sn.length >= 6) {
+    const yy = 2000 + parseInt(sn.slice(0, 2), 10);
+    const mm = parseInt(sn.slice(2, 4), 10) - 1;
+    const dd = parseInt(sn.slice(4, 6), 10);
+    if (!isNaN(yy) && !isNaN(mm) && !isNaN(dd)) return new Date(yy, mm, dd, 0, 0, 0).getTime();
   }
-  return new Date().toISOString();
+  return 0;
+}
+
+function parseCreatedAtFromSn(orderSn) {
+  const ts = getSnDateTimestamp(orderSn);
+  return ts > 0 ? new Date(ts).toISOString() : new Date().toISOString();
 }
 
 function extractCardObject(item) {
   if (!item) return null;
   if (item.order_card) return item.order_card;
   if (item.package_level_order_card) {
-    const pkg = item.package_level_order_card;
-    const pkg0 = pkg.package_list?.[0] || {};
+    const pkg = item.package_level_order_card, pkg0 = pkg.package_list?.[0] || {};
     return {
       card_header: pkg.card_header, status_info: pkg0.status_info, payment_info: pkg0.payment_info,
       fulfilment_info: pkg0.fulfilment_info, item_info_group: pkg0.item_info_group,
@@ -62,21 +72,32 @@ function resolveStatusDescription(card) {
   return desc.replace(/\s*\{timestamp\}\s*/gi, " ").trim();
 }
 
-/**
- * LẤY CHUẨN XÁC 100%:
- * - create_time: Thời gian đặt hàng thực tế (giờ, phút, giây) từ get_one_order
- * - product_amount, escrow_amount, buyer_paid_amount: Từ Accounting API
- */
-async function fetchOrderDetailAndIncome(orderId, spcCds) {
+async function fetchCardSn(item, spcCds) {
+  if (!item) return "";
   try {
-    const [detailRes, incomeRes] = await Promise.all([
-      fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${spcCds}&SPC_CDS_VER=2&order_id=${orderId}`, { method: "GET", credentials: "include" }).then(r => r.json()).catch(() => null),
-      fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
-      }).then(r => r.json()).catch(() => null)
-    ]);
+    const res = await fetch(`https://banhang.shopee.vn/api/v3/order/get_order_list_card_list?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+      body: JSON.stringify({ order_list_tab: 100, need_count_down_desc: false, order_param_list: [item] })
+    }).then(r => r.json()).catch(() => null);
+    const card = extractCardObject(res?.data?.card_list?.[0]);
+    return card?.card_header?.order_sn || "";
+  } catch (e) { return ""; }
+}
+
+async function fetchOrderDetailAndIncome(orderId, spcCds, isCancelled = false) {
+  try {
+    const calls = [fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${spcCds}&SPC_CDS_VER=2&order_id=${orderId}`, {
+      method: "GET", credentials: "include"
+    }).then(r => r.json()).catch(() => null)];
+    if (!isCancelled) {
+      calls.push(fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
+      }).then(r => r.json()).catch(() => null));
+    }
+    const [detailRes, incomeRes] = await Promise.all(calls);
     const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
-    let product_amount = null, escrow_amount = null, buyer_paid_amount = null;
+    let product_amount = null, escrow_amount = isCancelled ? 0 : null, buyer_paid_amount = null;
     if (incomeRes?.code === 0 && incomeRes.data) {
       const sB = incomeRes.data.seller_income_breakdown?.breakdown || [], bB = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
       const prod = sB.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
@@ -95,21 +116,18 @@ async function fetchOrderDetailAndIncome(orderId, spcCds) {
   } catch (e) { return null; }
 }
 
-async function fetchIncomeViaTab(orderIds, preferredTabId) {
+async function fetchIncomeViaTab(ordersToFetch, preferredTabId) {
+  if (!ordersToFetch || ordersToFetch.length === 0) return new Map();
   try {
     let targetTabId = preferredTabId;
     if (!targetTabId) {
-      try {
-        const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" });
-        if (tabs && tabs.length > 0) targetTabId = tabs[0].id;
-      } catch (e) {}
+      const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" }).catch(() => []);
+      if (tabs?.length > 0) targetTabId = tabs[0].id;
     }
     if (!targetTabId) {
-      try {
-        const allTabs = await chrome.tabs.query({});
-        const shopeeTab = allTabs.find(t => t.url && t.url.includes("banhang.shopee.vn"));
-        if (shopeeTab) targetTabId = shopeeTab.id;
-      } catch (e) {}
+      const allTabs = await chrome.tabs.query({}).catch(() => []);
+      const shopeeTab = allTabs.find(t => t.url && t.url.includes("banhang.shopee.vn"));
+      if (shopeeTab) targetTabId = shopeeTab.id;
     }
     let created = false;
     if (!targetTabId) {
@@ -120,34 +138,34 @@ async function fetchIncomeViaTab(orderIds, preferredTabId) {
     }
     if (targetTabId) {
       let data = null;
-      // 1. Ưu tiên cao nhất: Dùng chrome.scripting.executeScript chạy trực tiếp trong trang Shopee (Same-Origin)
       try {
         const injectionResults = await chrome.scripting.executeScript({
           target: { tabId: targetTabId },
-          func: async (ids) => {
+          func: async (items) => {
             const match = document.cookie.match(/SPC_CDS=([^;]+)/);
             const cds = match ? match[1] : "";
             const results = [];
             const CHUNK = 8;
-            for (let i = 0; i < ids.length; i += CHUNK) {
-              const slice = ids.slice(i, i + CHUNK);
-              const chunkRes = await Promise.all(slice.map(async (id) => {
+            for (let i = 0; i < items.length; i += CHUNK) {
+              const slice = items.slice(i, i + CHUNK);
+              const chunkRes = await Promise.all(slice.map(async (it) => {
+                const id = typeof it === "object" ? it.id : it;
+                const isCancelled = typeof it === "object" ? it.isCancelled : false;
                 try {
-                  const [detailRes, incomeRes] = await Promise.all([
-                    fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${id}`, {
-                      method: "GET", credentials: "include"
-                    }).then(r => r.json()).catch(() => null),
-                    fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+                  const calls = [fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${id}`, {
+                    method: "GET", credentials: "include"
+                  }).then(r => r.json()).catch(() => null)];
+                  if (!isCancelled) {
+                    calls.push(fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
                       method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
                       body: JSON.stringify({ order_id: Number(id), components: [2, 3] })
-                    }).then(r => r.json()).catch(() => null)
-                  ]);
-
+                    }).then(r => r.json()).catch(() => null));
+                  }
+                  const [detailRes, incomeRes] = await Promise.all(calls);
                   const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
-                  let product_amount = null, escrow_amount = null, buyer_paid_amount = null;
+                  let product_amount = null, escrow_amount = isCancelled ? 0 : null, buyer_paid_amount = null;
                   if (incomeRes?.code === 0 && incomeRes.data) {
-                    const sB = incomeRes.data.seller_income_breakdown?.breakdown || [];
-                    const bB = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
+                    const sB = incomeRes.data.seller_income_breakdown?.breakdown || [], bB = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
                     const prod = sB.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
                     const escrow = sB.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
                     const buyerPaid = bB.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
@@ -156,35 +174,28 @@ async function fetchIncomeViaTab(orderIds, preferredTabId) {
                     if (buyerPaid !== undefined && buyerPaid !== null) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
                   }
                   if (product_amount === null && detailRes?.data?.order_items) {
-                    const s = detailRes.data.order_items.reduce((acc, it) => acc + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+                    const s = detailRes.data.order_items.reduce((acc, x) => acc + (Number(x.order_price || 0) * Number(x.amount || 1)), 0);
                     if (s > 0) product_amount = s;
                   }
-                  if (buyer_paid_amount === null && detailRes?.data?.total_price) {
-                    buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
-                  }
+                  if (buyer_paid_amount === null && detailRes?.data?.total_price) buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
                   return { order_id: id, create_time, product_amount, escrow_amount, buyer_paid_amount };
-                } catch (e) {
-                  return { order_id: id };
-                }
+                } catch (e) { return { order_id: id, escrow_amount: isCancelled ? 0 : null }; }
               }));
               results.push(...chunkRes);
-              if (i + CHUNK < ids.length) await new Promise(r => setTimeout(r, 30));
+              if (i + CHUNK < items.length) await new Promise(r => setTimeout(r, 25));
             }
             return results;
           },
-          args: [orderIds]
+          args: [ordersToFetch]
         });
-        if (injectionResults?.[0]?.result && Array.isArray(injectionResults[0].result)) {
-          data = injectionResults[0].result;
-        }
+        if (injectionResults?.[0]?.result && Array.isArray(injectionResults[0].result)) data = injectionResults[0].result;
       } catch (errExec) {}
 
-      // 2. Dự phòng: gửi message tới content.js
       if (!data) {
+        const orderIds = ordersToFetch.map(o => typeof o === "object" ? o.id : o);
         const res = await new Promise(r => {
           chrome.tabs.sendMessage(targetTabId, { action: "batch_fetch_income", orderIds }, response => {
-            if (chrome.runtime.lastError) r(null);
-            else r(response);
+            r(chrome.runtime.lastError ? null : response);
           });
         });
         if (res?.success && Array.isArray(res.data)) data = res.data;
@@ -198,7 +209,7 @@ async function fetchIncomeViaTab(orderIds, preferredTabId) {
       }
     }
   } catch (e) {}
-  return null;
+  return new Map();
 }
 
 async function fetchAdsWalletInfo(spcCds) {
@@ -207,10 +218,8 @@ async function fetchAdsWalletInfo(spcCds) {
     const res = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
       method: "GET", credentials: "include"
     }).then(r => r.json()).catch(() => null);
-
     if (res?.code === 0 && res.data) {
-      const b = res.data.ads_credit?.available ?? res.data.ads_credit?.total;
-      const e = res.data.ads_expense_today?.total;
+      const b = res.data.ads_credit?.available ?? res.data.ads_credit?.total, e = res.data.ads_expense_today?.total;
       return {
         ads_balance: (b !== undefined && b !== null) ? Math.round(Number(b) / 100000) : null,
         ads_expense_today: (e !== undefined && e !== null) ? Math.round(Number(e) / 100000) : null
@@ -285,13 +294,17 @@ function formatShopeeOrderCard(card, extraInfo) {
   };
 }
 
-function broadcastProgress(current, total, detail, title) {
+function broadcastProgress(current, total, detail, title, syncMode, monthsCount) {
   const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
-  chrome.runtime.sendMessage({
-    action: "sync_progress", current, total, percent,
-    title: title || "Đang đồng bộ...",
-    detail: detail || `Đã xử lý ${current}/${total} đơn (${percent}%)`
-  }).catch(() => {});
+  currentProgressState.isSyncing = isSyncingInProgress;
+  currentProgressState.current = current;
+  currentProgressState.total = total;
+  currentProgressState.percent = percent;
+  currentProgressState.title = title || "Đang đồng bộ...";
+  currentProgressState.detail = detail || (total > 0 ? `Đã xử lý ${current}/${total} đơn (${percent}%)` : "");
+  if (syncMode) currentProgressState.syncMode = syncMode;
+  if (monthsCount) currentProgressState.monthsCount = monthsCount;
+  chrome.runtime.sendMessage({ action: "sync_progress", ...currentProgressState }).catch(() => {});
 }
 
 async function performFullSync(customWebhookUrl, options = {}) {
@@ -309,7 +322,8 @@ async function performFullSync(customWebhookUrl, options = {}) {
   }
 
   isSyncingInProgress = true;
-  broadcastProgress(0, 100, "Đang kết nối Shopee API...", "Bắt đầu đồng bộ");
+  syncCancelRequested = false;
+  broadcastProgress(0, 0, "Đang kết nối Shopee API...", "Bắt đầu đồng bộ", syncMode, monthsCount);
 
   try {
     const spcCds = await getSpcCds();
@@ -318,6 +332,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
 
     const PAGE_SIZE = 200;
     async function fetchIndexPage(page) {
+      if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
       const r = await fetch(indexUrl, {
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
         body: JSON.stringify({
@@ -328,7 +343,9 @@ async function performFullSync(customWebhookUrl, options = {}) {
       if (!r.ok) throw new Error(`Shopee index API HTTP ${r.status}`);
       const j = await r.json();
       if (j.code !== 0 && j.message) {
-        if (j.message.toLowerCase().includes("login") || j.message.toLowerCase().includes("auth") || j.code === 100000) throw new Error("Phiên đăng nhập Shopee đã hết hạn. Vui lòng đăng nhập lại banhang.shopee.vn");
+        if (j.message.toLowerCase().includes("login") || j.message.toLowerCase().includes("auth") || j.code === 100000) {
+          throw new Error("Phiên đăng nhập Shopee đã hết hạn. Vui lòng đăng nhập lại banhang.shopee.vn");
+        }
         throw new Error(`Shopee API lỗi: ${j.message}`);
       }
       return j.data || {};
@@ -337,152 +354,221 @@ async function performFullSync(customWebhookUrl, options = {}) {
     const firstPage = await fetchIndexPage(1);
     let rawIndex = [...(firstPage.index_list || [])];
     const reportedTotal = firstPage.pagination?.total || rawIndex.length;
-    broadcastProgress(0, reportedTotal, `Tìm thấy ${reportedTotal} đơn hàng, đang quét mã...`, "Đang quét mã đơn");
 
-    if (syncMode === "all" && reportedTotal > rawIndex.length) {
-      const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
-      for (let p = 2; p <= totalPages; p += 5) {
-        const slicePages = Array.from({ length: Math.min(5, totalPages - p + 1) }, (_, i) => p + i);
-        const resList = await Promise.all(slicePages.map(page => fetchIndexPage(page).then(d => d.index_list || []).catch(() => [])));
-        resList.forEach(l => rawIndex.push(...l));
-        broadcastProgress(rawIndex.length, reportedTotal, `Đã lấy ${rawIndex.length}/${reportedTotal} mã đơn...`, "Đang quét mã đơn");
-        await new Promise(r => setTimeout(r, 40));
-      }
-    }
-
-    const uniqueMap = new Map();
-    rawIndex.forEach((item) => {
-      const key = item.order_id || `${item.package_number}_${item.order_sn}` || JSON.stringify(item);
-      if (!uniqueMap.has(key)) uniqueMap.set(key, item);
-    });
-    let indexList = Array.from(uniqueMap.values());
-    if (indexList.length === 0) {
-      isSyncingInProgress = false;
+    if (reportedTotal === 0 || rawIndex.length === 0) {
       return { success: false, message: "Không tìm thấy đơn hàng nào để đồng bộ!" };
     }
 
-    const targetTotal = reportedTotal || indexList.length;
-    const CHUNK_SIZE = 5;
-    const CONCURRENCY = 10;
-    const STREAM_BATCH_SIZE = 300;
-    const DELAY_BETWEEN_ROUNDS = 60;
+    let indexList = [];
 
-    let currentStreamBatch = [];
-    let totalOrdersSynced = 0;
-    let pageIdx = 1;
-    let reachedCutoff = false;
+    // Chế độ 1: Đồng bộ theo tháng -> Tính chuẩn xác số lượng đơn thuộc tháng trước khi đồng bộ
+    if (syncMode === "months" && cutoffTs > 0) {
+      broadcastProgress(0, 0, `Đang xác định số lượng đơn ${monthsCount} tháng gần nhất...`, "Đang quét mã đơn", syncMode, monthsCount);
 
-    while (indexList.length > 0 && !reachedCutoff) {
-      const chunks = [];
-      for (let i = 0; i < indexList.length; i += CHUNK_SIZE) chunks.push(indexList.slice(i, i + CHUNK_SIZE));
+      let allIndex = [...rawIndex], page = 1, foundBoundary = false;
+      const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
 
-      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-        const slice = chunks.slice(i, i + CONCURRENCY);
-        const batchResults = await Promise.all(
-          slice.map(chunk => fetch(cardUrl, {
-            method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-            body: JSON.stringify({ order_list_tab: 100, need_count_down_desc: false, order_param_list: chunk })
-          }).then(r => r.json()).then(res => res.data?.card_list || []).catch(() => []))
-        );
+      while (page <= totalPages && !foundBoundary) {
+        if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
 
-        const rawCards = [];
-        batchResults.forEach(cards => {
-          cards.forEach(item => {
-            const cardObj = extractCardObject(item);
-            if (cardObj) rawCards.push(cardObj);
-          });
-        });
-
-        // Ưu tiên lấy doanh thu trực tiếp từ Tab Shopee đang mở (Same-Origin) hoặc qua API
-        const oids = rawCards.map(c => c.order_ext_info?.order_id || c.order_id).filter(Boolean);
-        const tabMap = await fetchIncomeViaTab(oids, options.tabId);
-        const extraMap = tabMap || new Map();
-
-        for (let k = 0; k < rawCards.length; k += 5) {
-          await Promise.all(rawCards.slice(k, k + 5).map(async (c) => {
-            const oid = c.order_ext_info?.order_id || c.order_id;
-            if (oid) {
-              const ex = extraMap.get(String(oid));
-              if (!ex?.create_time || ex?.escrow_amount === null || ex?.escrow_amount === undefined) {
-                const info = await fetchOrderDetailAndIncome(oid, spcCds);
-                if (info) {
-                  const mergedEscrow = (ex?.escrow_amount !== null && ex?.escrow_amount !== undefined) ? ex.escrow_amount : info.escrow_amount;
-                  extraMap.set(String(oid), { ...(ex || {}), ...info, escrow_amount: mergedEscrow });
-                }
-              }
-            }
-          }));
-          if (k + 5 < rawCards.length) await new Promise(r => setTimeout(r, 40));
-        }
-
-        rawCards.forEach(cardObj => {
-          const oid = cardObj.order_ext_info?.order_id || cardObj.order_id;
-          const extra = oid ? extraMap.get(String(oid)) : null;
-          const parsed = formatShopeeOrderCard(cardObj, extra);
-          if (parsed) {
-            if (cutoffTs && new Date(parsed.created_at).getTime() < cutoffTs) reachedCutoff = true;
-            else currentStreamBatch.push(parsed);
+        let pageItems = [];
+        if (page === 1) {
+          pageItems = rawIndex;
+        } else {
+          try {
+            const pageData = await fetchIndexPage(page);
+            pageItems = pageData.index_list || [];
+            if (pageItems.length === 0) break;
+            allIndex.push(...pageItems);
+          } catch (e) {
+            if (e.message === "SYNC_CANCELLED") throw e;
+            break;
           }
-        });
-
-        const currentTotal = totalOrdersSynced + currentStreamBatch.length;
-        broadcastProgress(currentTotal, targetTotal, `Đã tải ${currentTotal}/${targetTotal} đơn chi tiết...`, "Đang tải đơn hàng");
-
-        if (currentStreamBatch.length >= STREAM_BATCH_SIZE) {
-          const batchToSend = [...currentStreamBatch];
-          currentStreamBatch = [];
-          broadcastProgress(currentTotal, targetTotal, `Đang nạp mẻ ${batchToSend.length} đơn sang Sheet...`, "Đang ghi Sheet");
-          await postToGoogleSheet({ orders: batchToSend, is_last_batch: false }, customWebhookUrl);
-          totalOrdersSynced += batchToSend.length;
         }
 
-        if (reachedCutoff) break;
-        if (DELAY_BETWEEN_ROUNDS) await new Promise(r => setTimeout(r, DELAY_BETWEEN_ROUNDS));
+        const lastItem = pageItems[pageItems.length - 1];
+        const lastSn = await fetchCardSn(lastItem, spcCds);
+        const lastTs = getSnDateTimestamp(lastSn);
+
+        broadcastProgress(0, allIndex.length, `Đang phân tích phạm vi đơn (trang ${page}/${totalPages})...`, "Đang quét mã đơn", syncMode, monthsCount);
+
+        // Nếu đơn cuối trang có ngày tạo nhỏ hơn cutoffTs -> Ranh giới nằm trên trang này
+        if (lastTs > 0 && lastTs < cutoffTs) {
+          foundBoundary = true;
+          let low = 0, high = pageItems.length - 1, boundaryIndex = pageItems.length - 1;
+          while (low <= high) {
+            if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
+            const mid = Math.floor((low + high) / 2);
+            const midSn = await fetchCardSn(pageItems[mid], spcCds);
+            const midTs = getSnDateTimestamp(midSn);
+            if (midTs > 0 && midTs < cutoffTs) {
+              boundaryIndex = mid;
+              high = mid - 1;
+            } else {
+              low = mid + 1;
+            }
+          }
+          const prevCount = (page - 1) * PAGE_SIZE;
+          indexList = [...allIndex.slice(0, prevCount), ...pageItems.slice(0, boundaryIndex)];
+          break;
+        } else {
+          page++;
+        }
       }
 
-      if (syncMode === "all" || reachedCutoff) break;
-      pageIdx++;
-      if (pageIdx * PAGE_SIZE - PAGE_SIZE >= reportedTotal) break;
-      try {
-        const nextPage = await fetchIndexPage(pageIdx);
-        const nextList = nextPage.index_list || [];
-        if (nextList.length === 0) break;
-        indexList = nextList;
-      } catch (e) { break; }
+      if (!foundBoundary) indexList = allIndex;
+    } else {
+      // Chế độ 2: Đồng bộ toàn bộ đơn
+      broadcastProgress(0, reportedTotal, `Tìm thấy ${reportedTotal} đơn hàng, đang quét mã...`, "Đang quét mã đơn", syncMode, monthsCount);
+      if (reportedTotal > rawIndex.length) {
+        const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
+        for (let p = 2; p <= totalPages; p += 5) {
+          if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
+          const slicePages = Array.from({ length: Math.min(5, totalPages - p + 1) }, (_, i) => p + i);
+          const resList = await Promise.all(slicePages.map(page => fetchIndexPage(page).then(d => d.index_list || []).catch(() => [])));
+          resList.forEach(l => rawIndex.push(...l));
+          broadcastProgress(rawIndex.length, reportedTotal, `Đã lấy ${rawIndex.length}/${reportedTotal} mã đơn...`, "Đang quét mã đơn", syncMode, monthsCount);
+          await new Promise(r => setTimeout(r, 30));
+        }
+      }
+      indexList = rawIndex;
+    }
+
+    if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
+
+    const uniqueMap = new Map();
+    indexList.forEach((item) => {
+      const key = item.order_id || `${item.package_number}_${item.order_sn}` || JSON.stringify(item);
+      if (!uniqueMap.has(key)) uniqueMap.set(key, item);
+    });
+    indexList = Array.from(uniqueMap.values());
+
+    if (indexList.length === 0) {
+      return { success: false, message: "Không có đơn hàng nào trong khoảng thời gian đã chọn!" };
+    }
+
+    const targetTotal = indexList.length;
+    broadcastProgress(0, targetTotal, `Tìm thấy ${targetTotal} đơn cần đồng bộ. Bắt đầu tải chi tiết...`, "Bắt đầu đồng bộ", syncMode, monthsCount);
+
+    const CHUNK_SIZE = 5, CONCURRENCY = 8, STREAM_BATCH_SIZE = 300, DELAY_BETWEEN_ROUNDS = 40;
+    let currentStreamBatch = [], totalOrdersSynced = 0;
+    const chunks = [];
+    for (let i = 0; i < indexList.length; i += CHUNK_SIZE) chunks.push(indexList.slice(i, i + CHUNK_SIZE));
+
+    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+      if (syncCancelRequested) break;
+
+      const slice = chunks.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        slice.map(chunk => fetch(cardUrl, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ order_list_tab: 100, need_count_down_desc: false, order_param_list: chunk })
+        }).then(r => r.json()).then(res => res.data?.card_list || []).catch(() => []))
+      );
+
+      const rawCards = [];
+      batchResults.forEach(cards => {
+        cards.forEach(item => {
+          const cardObj = extractCardObject(item);
+          if (cardObj) rawCards.push(cardObj);
+        });
+      });
+
+      const ordersToFetch = rawCards.map(c => {
+        const oid = c.order_ext_info?.order_id || c.order_id;
+        const status = (c.status_info?.status || "").toLowerCase();
+        const isCancelled = status.includes("hủy") || status.includes("trả") || status.includes("hoàn");
+        return oid ? { id: oid, isCancelled } : null;
+      }).filter(Boolean);
+
+      const tabMap = await fetchIncomeViaTab(ordersToFetch, options.tabId);
+      const extraMap = tabMap || new Map();
+
+      for (let k = 0; k < rawCards.length; k += 5) {
+        if (syncCancelRequested) break;
+        await Promise.all(rawCards.slice(k, k + 5).map(async (c) => {
+          const oid = c.order_ext_info?.order_id || c.order_id;
+          if (oid && !extraMap.has(String(oid))) {
+            const status = (c.status_info?.status || "").toLowerCase();
+            const isCancelled = status.includes("hủy") || status.includes("trả") || status.includes("hoàn");
+            const info = await fetchOrderDetailAndIncome(oid, spcCds, isCancelled);
+            if (info) extraMap.set(String(oid), info);
+          }
+        }));
+      }
+
+      rawCards.forEach(cardObj => {
+        const oid = cardObj.order_ext_info?.order_id || cardObj.order_id;
+        const extra = oid ? extraMap.get(String(oid)) : null;
+        const parsed = formatShopeeOrderCard(cardObj, extra);
+        if (parsed) {
+          if (!cutoffTs || new Date(parsed.created_at).getTime() >= cutoffTs) {
+            currentStreamBatch.push(parsed);
+          }
+        }
+      });
+
+      const currentTotal = totalOrdersSynced + currentStreamBatch.length;
+      broadcastProgress(currentTotal, targetTotal, `Đã tải ${currentTotal}/${targetTotal} đơn chi tiết...`, "Đang tải đơn hàng", syncMode, monthsCount);
+
+      if (currentStreamBatch.length >= STREAM_BATCH_SIZE) {
+        const batchToSend = [...currentStreamBatch];
+        currentStreamBatch = [];
+        broadcastProgress(currentTotal, targetTotal, `Đang nạp mẻ ${batchToSend.length} đơn sang Sheet...`, "Đang ghi Sheet", syncMode, monthsCount);
+        await postToGoogleSheet({ orders: batchToSend, is_last_batch: false }, customWebhookUrl);
+        totalOrdersSynced += batchToSend.length;
+      }
+
+      if (DELAY_BETWEEN_ROUNDS) await new Promise(r => setTimeout(r, DELAY_BETWEEN_ROUNDS));
+    }
+
+    if (syncCancelRequested) {
+      if (currentStreamBatch.length > 0) {
+        await postToGoogleSheet({ orders: currentStreamBatch, is_last_batch: true }, customWebhookUrl);
+        totalOrdersSynced += currentStreamBatch.length;
+      }
+      const cancelRes = { success: false, cancelled: true, totalOrders: totalOrdersSynced, message: `Đã hủy đồng bộ theo yêu cầu (đã lưu ${totalOrdersSynced} đơn).` };
+      await chrome.storage.local.set({ lastSyncTimestamp: Date.now(), lastSyncResult: cancelRes });
+      broadcastProgress(totalOrdersSynced, targetTotal, "Đã hủy đồng bộ theo yêu cầu.", "Đã hủy", syncMode, monthsCount);
+      return cancelRes;
     }
 
     totalOrdersSynced += currentStreamBatch.length;
-    broadcastProgress(totalOrdersSynced, targetTotal, `Đang chốt mẻ cuối ${currentStreamBatch.length} đơn & cập nhật Dashboard...`, "Hoàn tất");
+    broadcastProgress(totalOrdersSynced, targetTotal, `Đang chốt mẻ cuối ${currentStreamBatch.length} đơn & cập nhật Dashboard...`, "Hoàn tất", syncMode, monthsCount);
     const adsInfo = await fetchAdsWalletInfo(spcCds);
     const finalSheetResult = await postToGoogleSheet({
-      orders: currentStreamBatch,
-      ads_balance: adsInfo.ads_balance,
-      ads_expense_today: adsInfo.ads_expense_today,
-      is_last_batch: true
+      orders: currentStreamBatch, ads_balance: adsInfo.ads_balance,
+      ads_expense_today: adsInfo.ads_expense_today, is_last_batch: true
     }, customWebhookUrl);
 
     const modeTag = syncMode === "months" ? ` (${monthsCount} tháng gần nhất)` : " (Toàn bộ)";
     const finalResult = {
-      success: finalSheetResult.success,
-      totalOrders: totalOrdersSynced,
+      success: finalSheetResult.success, totalOrders: totalOrdersSynced,
       message: finalSheetResult.success
         ? `Đã đồng bộ trọn vẹn ${totalOrdersSynced} đơn hàng${modeTag} sang Google Sheet!`
         : `Lỗi ghi Google Sheet: ${finalSheetResult.message}`
     };
 
     await chrome.storage.local.set({
-      lastSyncTimestamp: Date.now(),
-      lastSyncResult: finalResult,
+      lastSyncTimestamp: Date.now(), lastSyncResult: finalResult,
       recentOrders: currentStreamBatch.slice(0, 30)
     });
 
     return finalResult;
   } catch (err) {
+    if (err.message === "SYNC_CANCELLED" || syncCancelRequested) {
+      const cancelRes = { success: false, cancelled: true, totalOrders: 0, message: "Đã hủy tiến trình đồng bộ theo yêu cầu." };
+      await chrome.storage.local.set({ lastSyncTimestamp: Date.now(), lastSyncResult: cancelRes });
+      broadcastProgress(0, 0, "Đã hủy đồng bộ theo yêu cầu.", "Đã hủy", syncMode, monthsCount);
+      return cancelRes;
+    }
     const errRes = { success: false, message: `Lỗi đồng bộ: ${err.message || err}` };
     await chrome.storage.local.set({ lastSyncTimestamp: Date.now(), lastSyncResult: errRes });
     return errRes;
   } finally {
     isSyncingInProgress = false;
+    syncCancelRequested = false;
+    currentProgressState.isSyncing = false;
   }
 }
 
@@ -495,7 +581,6 @@ async function postToGoogleSheet(payload, customWebhookUrl) {
   if (!webhookUrl || !webhookUrl.startsWith("https://script.google.com/macros/s/")) {
     return { success: false, message: "Chưa cấu hình hoặc URL Webhook Google Sheet không hợp lệ" };
   }
-
   try {
     const res = await fetch(webhookUrl, {
       method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" },
@@ -537,11 +622,18 @@ chrome.runtime.onInstalled.addListener(checkAndInitAutoSync);
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === "trigger_full_sync") {
     performFullSync(req.webhookUrl, {
-      syncMode: req.syncMode || "all",
-      monthsCount: req.monthsCount || 1,
-      tabId: sender.tab?.id
-    })
-      .then(r => sendResponse(r)).catch(e => sendResponse({ success: false, message: e.toString() }));
+      syncMode: req.syncMode || "all", monthsCount: req.monthsCount || 1, tabId: sender.tab?.id
+    }).then(r => sendResponse(r)).catch(e => sendResponse({ success: false, message: e.toString() }));
+    return true;
+  }
+  if (req.action === "cancel_sync") {
+    if (isSyncingInProgress) {
+      syncCancelRequested = true;
+      broadcastProgress(currentProgressState.current, currentProgressState.total, "Đang dừng đồng bộ...", "Đang hủy...", currentProgressState.syncMode, currentProgressState.monthsCount);
+      sendResponse({ success: true, message: "Đang dừng tiến trình đồng bộ..." });
+    } else {
+      sendResponse({ success: false, message: "Không có tiến trình đồng bộ nào đang chạy." });
+    }
     return true;
   }
   if (req.action === "save_auto_sync_settings") {
@@ -553,7 +645,10 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     });
     return true;
   }
-  if (req.action === "get_sync_status") { getSettings().then(s => sendResponse({ isSyncing: isSyncingInProgress, ...s })); return true; }
+  if (req.action === "get_sync_status") {
+    getSettings().then(s => sendResponse({ isSyncing: isSyncingInProgress, progress: currentProgressState, ...s }));
+    return true;
+  }
   if (req.action === "get_settings") { getSettings().then(s => sendResponse(s)); return true; }
   if (req.action === "clear_history") { chrome.storage.local.set({ recentOrders: [] }, () => sendResponse({ success: true })); return true; }
   if (req.action === "test_webhook") {
@@ -573,7 +668,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           oid = idxRes?.data?.index_list?.[0]?.order_id;
         }
         if (oid) {
-          const tabMap = await fetchIncomeViaTab([oid], sender.tab?.id), tabInc = tabMap ? tabMap.get(String(oid)) : null;
+          const tabMap = await fetchIncomeViaTab([{ id: oid, isCancelled: false }], sender.tab?.id), tabInc = tabMap ? tabMap.get(String(oid)) : null;
           const detail = await fetchOrderDetailAndIncome(oid, spcCds);
           if (detail?.create_time) payload.created_at = new Date(detail.create_time * 1000).toISOString();
           const p = tabInc?.product_amount ?? detail?.product_amount, e = tabInc?.escrow_amount ?? detail?.escrow_amount, b = tabInc?.buyer_paid_amount ?? detail?.buyer_paid_amount;

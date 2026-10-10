@@ -263,10 +263,44 @@ body {
   transition: width 0.3s ease;
 }
 
+.sync-progress-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+  gap: 8px;
+}
+
 .sync-progress-detail {
   font-size: 10.5px;
   color: #7f8c8d;
   text-align: right;
+  flex: 1;
+}
+
+.btn-cancel-sync {
+  background: #fef5e7;
+  color: #c0392b;
+  border: 1px solid #f5b7b1;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-cancel-sync:hover {
+  background: #e74c3c;
+  color: #ffffff;
+  border-color: #c0392b;
+  box-shadow: 0 2px 6px rgba(231, 76, 60, 0.3);
+}
+
+.btn-cancel-sync:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .sync-notice {

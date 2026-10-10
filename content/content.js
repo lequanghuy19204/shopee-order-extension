@@ -41,25 +41,31 @@
   });
 
   // Lấy chi tiết ngày tạo & doanh thu chuẩn xác từ Shopee API trong ngữ cảnh Same-Origin
-  async function fetchIncomeDirect(orderId) {
+  async function fetchIncomeDirect(orderId, isCancelled = false) {
     try {
       const match = document.cookie.match(/SPC_CDS=([^;]+)/);
       const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
 
-      const [detailRes, incomeRes] = await Promise.all([
+      const calls = [
         fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${orderId}`, {
           method: "GET", credentials: "include"
-        }).then(r => r.json()).catch(() => null),
-
-        fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
         }).then(r => r.json()).catch(() => null)
-      ]);
+      ];
+
+      if (!isCancelled) {
+        calls.push(
+          fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+            body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
+          }).then(r => r.json()).catch(() => null)
+        );
+      }
+
+      const [detailRes, incomeRes] = await Promise.all(calls);
 
       const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
 
-      let product_amount = null, escrow_amount = null, buyer_paid_amount = null;
+      let product_amount = null, escrow_amount = isCancelled ? 0 : null, buyer_paid_amount = null;
       if (incomeRes?.code === 0 && incomeRes.data) {
         const sBreakdown = incomeRes.data.seller_income_breakdown?.breakdown || [];
         const bBreakdown = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
@@ -123,13 +129,15 @@
         for (let i = 0; i < orderIds.length; i += CHUNK) {
           const slice = orderIds.slice(i, i + CHUNK);
           const chunkRes = await Promise.all(
-            slice.map(async (id) => {
-              const inc = await fetchIncomeDirect(id);
+            slice.map(async (item) => {
+              const id = typeof item === "object" ? item.id : item;
+              const isCancelled = typeof item === "object" ? item.isCancelled : false;
+              const inc = await fetchIncomeDirect(id, isCancelled);
               return { order_id: id, ...(inc || {}) };
             })
           );
           results.push(...chunkRes);
-          if (i + CHUNK < orderIds.length) await new Promise(r => setTimeout(r, 30));
+          if (i + CHUNK < orderIds.length) await new Promise(r => setTimeout(r, 25));
         }
         sendResponse({ success: true, data: results });
       })();
