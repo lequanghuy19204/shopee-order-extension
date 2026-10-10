@@ -111,6 +111,39 @@
     return null;
   }
 
+  // Lấy chi tiết báo cáo Dịch vụ hiển thị theo tháng từ get_time_graph
+  async function fetchAdsReportDirect(startTime, endTime) {
+    try {
+      const match = document.cookie.match(/SPC_CDS=([^;]+)/);
+      const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
+      const res = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          agg_interval: 12,
+          campaign_type: "product_homepage_v2",
+          start_time: startTime,
+          end_time: endTime,
+          need_roi_target_setting: false,
+          filter_params: {
+            campaign_type: "new_cpc_homepage"
+          }
+        })
+      }).then(r => r.json()).catch(() => null);
+
+      if (res?.code === 0 && res.data?.report_aggregate) {
+        const agg = res.data.report_aggregate;
+        return {
+          ads_expense_month: (agg.cost !== undefined && agg.cost !== null) ? Math.round(Number(agg.cost) / 100000) : null,
+          ads_month_gmv: (agg.broad_gmv !== undefined && agg.broad_gmv !== null) ? Math.round(Number(agg.broad_gmv) / 100000) : null,
+          ads_month_roas: (agg.broad_roi !== undefined && agg.broad_roi !== null) ? Number(agg.broad_roi) : null
+        };
+      }
+    } catch (e) {}
+    return null;
+  }
+
   // Lắng nghe tiến trình đồng bộ thời gian thực & hỗ trợ background lấy doanh thu
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "sync_progress") {
@@ -119,6 +152,10 @@
     }
     if (msg.action === "fetch_ads_wallet") {
       fetchAdsWalletDirect().then(data => sendResponse({ success: true, data }));
+      return true;
+    }
+    if (msg.action === "fetch_ads_report") {
+      fetchAdsReportDirect(msg.startTime, msg.endTime).then(data => sendResponse({ success: true, data }));
       return true;
     }
     if (msg.action === "batch_fetch_income") {

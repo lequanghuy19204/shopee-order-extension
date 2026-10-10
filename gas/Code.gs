@@ -207,20 +207,13 @@ function handleShopeePost(e) {
     let sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
     const isLastBatch = data.is_last_batch !== false;
 
-    if (isLastBatch) {
-      const dbSheet = ss.getSheetByName("Dashboard");
-      if (!dbSheet || dbSheet.getLastRow() < 2) {
-        try { setupDashboard(); } catch (errDb) {}
-      }
-    }
-
     let ordersList = [];
     if (data.orders && Array.isArray(data.orders)) ordersList = data.orders;
     else if (data.order_sn) ordersList = [data];
 
     if (ordersList.length === 0) {
-      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined) {
-        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today);
+      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
+        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
         return ContentService.createTextOutput(JSON.stringify({
           success: true, message: "Đã cập nhật số dư & chi phí Dịch vụ hiển thị vào Dashboard!"
         })).setMimeType(ContentService.MimeType.JSON);
@@ -235,8 +228,12 @@ function handleShopeePost(e) {
     const batchMonths = new Set(ordersList.map(o => getMonthSheetName(o.created_at)));
     const updatedMonths = syncMonthlySheetsFromMaster(ss, isLastBatch ? null : Array.from(batchMonths));
 
-    if (data.ads_balance !== undefined || data.ads_expense_today !== undefined) {
-      updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today);
+    if (isLastBatch) {
+      try { setupDashboard(); } catch (errDb) {}
+    }
+
+    if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
+      updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
     }
 
     const executionTimeMs = Date.now() - startTime, monthTag = updatedMonths.length > 0 ? ` [${updatedMonths.join(", ")}]` : "";
@@ -331,6 +328,25 @@ function sortByNewestCreated() {
 function setupDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let db = ss.getSheetByName("Dashboard");
+
+  // Lưu lại giá trị số dư & chi phí DVHT nếu đã tồn tại trước đó để không bị mất khi reset bảng
+  let savedBalance = 0, savedExpToday = 0, savedExpMonth = 0, savedAdsDate = new Date();
+  if (db && db.getLastRow() >= 22) {
+    try {
+      const fBal = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN").findNext();
+      const fToday = db.createTextFinder("🔥 CHI PHÍ HÔM NAY").findNext();
+      const fMonth = db.createTextFinder("📅 CHI PHÍ THEO THÁNG").findNext();
+      const fTime = db.createTextFinder("🕒 CẬP NHẬT").findNext();
+      if (fBal) savedBalance = Number(db.getRange(fBal.getRow() + 1, fBal.getColumn()).getValue()) || 0;
+      if (fToday) savedExpToday = Number(db.getRange(fToday.getRow() + 1, fToday.getColumn()).getValue()) || 0;
+      if (fMonth) savedExpMonth = Number(db.getRange(fMonth.getRow() + 1, fMonth.getColumn()).getValue()) || 0;
+      if (fTime) {
+        const d = db.getRange(fTime.getRow() + 1, fTime.getColumn()).getValue();
+        if (d instanceof Date) savedAdsDate = d;
+      }
+    } catch (e) {}
+  }
+
   if (!db) db = ss.insertSheet("Dashboard", 0);
   else { ss.setActiveSheet(db); ss.moveActiveSheet(1); }
   db.clear();
@@ -341,12 +357,16 @@ function setupDashboard() {
   db.setRowHeight(1, 38);
   db.setRowHeight(2, 8);
 
+  // 1. 5 Thẻ KPI (Đã bỏ "💳 KHÁCH ĐÃ THANH TOÁN", Tổng tiền sản phẩm & Sản phẩm đã bán trừ đi Đã hủy và Trả hàng/Hoàn tiền)
+  const formExcluded = "'DonHangShopee'!$L$3:$L$50000, \"<>*hủy*\", 'DonHangShopee'!$L$3:$L$50000, \"<>*trả*\", 'DonHangShopee'!$L$3:$L$50000, \"<>*hoàn*\", 'DonHangShopee'!$M$3:$M$50000, \"<>*hủy*\", 'DonHangShopee'!$M$3:$M$50000, \"<>*trả*\", 'DonHangShopee'!$M$3:$M$50000, \"<>*hoàn*\"";
+  const formProdTotal = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+  const formQtyTotal = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+
   [
     ["A3:B4","A3:B3","A4:B4","💰 DOANH THU ƯỚC TÍNH (VỀ VÍ)","='DonHangShopee'!J2","#D4EFDF","#145A32","#,##0 \"₫\""],
-    ["C3:D4","C3:D3","C4:D4","📈 TỔNG TIỀN SẢN PHẨM","='DonHangShopee'!I2","#D6EAF8","#1B4F72","#,##0 \"₫\""],
-    ["E3:F4","E3:F3","E4:F4","💳 KHÁCH ĐÃ THANH TOÁN","='DonHangShopee'!K2","#FCF3CF","#7D6608","#,##0 \"₫\""],
-    ["G3:H4","G3:H3","G4:H4","📦 TỔNG ĐƠN HÀNG","=COUNTA('DonHangShopee'!B3:B50000)","#E8DAEF","#512E5F","#,##0"],
-    ["I3:J4","I3:J3","I4:J4","👕 SẢN PHẨM ĐÃ BÁN","='DonHangShopee'!H2","#F2F4F4","#2C3E50","#,##0"],
+    ["C3:D4","C3:D3","C4:D4","📈 TỔNG TIỀN SẢN PHẨM",formProdTotal,"#D6EAF8","#1B4F72","#,##0 \"₫\""],
+    ["E3:G4","E3:G3","E4:G4","📦 TỔNG ĐƠN HÀNG","=COUNTA('DonHangShopee'!B3:B50000)","#E8DAEF","#512E5F","#,##0"],
+    ["I3:J4","I3:J3","I4:J4","👕 SẢN PHẨM ĐÃ BÁN",formQtyTotal,"#F2F4F4","#2C3E50","#,##0"],
     ["K3:M4","K3:M3","K4:M4","🚨 TỶ LỆ HỦY ĐƠN","=IFERROR(COUNTIF('DonHangShopee'!L3:L50000,\"*hủy*\")/COUNTA('DonHangShopee'!B3:B50000),0)","#FADBD8","#B03A2E","0.0%"]
   ].forEach(([rng, top, val, title, form, bg, c, fmt]) => {
     db.getRange(top).merge().setValue(title).setFontSize(9).setFontWeight("bold").setFontColor("#555").setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle");
@@ -355,9 +375,36 @@ function setupDashboard() {
   });
   db.setRowHeight(3, 22); db.setRowHeight(4, 34); db.setRowHeight(5, 12);
 
-  db.getRange("A6:G6").merge().setValue("📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO THÁNG")
+  // 2. BẢNG 1 (BÊN TRÁI): 📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO NGÀY HIỆN TẠI
+  db.getRange("A6:G6").merge().setValue("📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO NGÀY HIỆN TẠI")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-  db.getRange("A7:G7").setValues([["Tháng/Năm", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "Khách thanh toán", "Tỷ lệ Payout"]])
+  db.getRange("A7:G7").setValues([["Ngày", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "ROAS", "Ghi chú"]])
+    .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
+
+  const formQtyToday = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+  const formProdToday = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+
+  db.getRange("A8:G8").setFormulas([[
+    "=TODAY()",
+    `=COUNTIFS('DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$B$3:$B$50000, "<>")`,
+    formQtyToday,
+    formProdToday,
+    `=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1))`,
+    `=IFERROR(D8/$K$22, 0)`,
+    `="Hôm nay"`
+  ]]);
+  db.getRange("A8").setNumberFormat("dd/MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
+  db.getRange("B8:C8").setHorizontalAlignment("center").setNumberFormat("#,##0");
+  db.getRange("D8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("E8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449");
+  db.getRange("F8").setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400");
+  db.getRange("G8").setHorizontalAlignment("center").setFontColor("#555");
+  db.setRowHeight(6, 24); db.setRowHeight(7, 26); db.setRowHeight(8, 26); db.setRowHeight(9, 10);
+
+  // 3. BẢNG 2 (BÊN TRÁI): 📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO THÁNG
+  db.getRange("A10:G10").merge().setValue("📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO THÁNG")
+    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+  db.getRange("A11:G11").setValues([["Tháng/Năm", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "ROAS", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
   const masterSheet = ss.getSheetByName(SHEET_NAME);
@@ -380,47 +427,54 @@ function setupDashboard() {
   }
 
   const sortedMonths = Array.from(monthMap.values()).sort((a, b) => b.getTime() - a.getTime());
-  const N = sortedMonths.length, endRow = 7 + N;
+  const N = sortedMonths.length, endRow = 11 + N;
   const mFormulas = [];
   for (let i = 0; i < N; i++) {
-    const r = 8 + i, mDate = sortedMonths[i];
+    const r = 12 + i, mDate = sortedMonths[i];
+    const formQtyMonth = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+    const formProdMonth = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+
     mFormulas.push([
       `=DATE(${mDate.getFullYear()}, ${mDate.getMonth() + 1}, 1)`,
       `=COUNTIFS('DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$B$3:$B$50000, "<>")`,
-      `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
-      `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
+      formQtyMonth,
+      formProdMonth,
       `=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
-      `=SUMIFS('DonHangShopee'!$K$3:$K$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`,
-      `=IFERROR(E${r}/D${r}, 0)`
+      `=IFERROR(D${r}/$L$22, 0)`,
+      `="Tháng " & (${mDate.getMonth() + 1})`
     ]);
   }
-  db.getRange(`A8:G${endRow}`).setFormulas(mFormulas);
-  db.getRange(`A8:A${endRow}`).setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
-  db.getRange(`B8:C${endRow}`).setHorizontalAlignment("center").setNumberFormat("#,##0");
-  db.getRange(`D8:F${endRow}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-  db.getRange(`E8:E${endRow}`).setFontWeight("bold").setFontColor("#1E8449");
-  db.getRange(`G8:G${endRow}`).setHorizontalAlignment("center").setNumberFormat("0.0%");
 
-  const totR = 8 + N;
-  db.getRange(`A${totR}:G${totR}`).setFormulas([["=0", `=SUM(B8:B${endRow})`, `=SUM(C8:C${endRow})`, `=SUM(D8:D${endRow})`, `=SUM(E8:E${endRow})`, `=SUM(F8:F${endRow})`, `=IFERROR(E${totR}/D${totR}, 0)`]])
+  db.getRange(`A12:G${endRow}`).setFormulas(mFormulas);
+  db.getRange(`A12:A${endRow}`).setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
+  db.getRange(`B12:C${endRow}`).setHorizontalAlignment("center").setNumberFormat("#,##0");
+  db.getRange(`D12:E${endRow}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange(`E12:E${endRow}`).setFontWeight("bold").setFontColor("#1E8449");
+  db.getRange(`F12:F${endRow}`).setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400");
+  db.getRange(`G12:G${endRow}`).setHorizontalAlignment("center").setFontColor("#555");
+
+  const totR = 12 + N;
+  db.getRange(`A${totR}:G${totR}`).setFormulas([["=0", `=SUM(B12:B${endRow})`, `=SUM(C12:C${endRow})`, `=SUM(D12:D${endRow})`, `=SUM(E12:E${endRow})`, `=IFERROR(D${totR}/$L$22, 0)`, `="Toàn kỳ"`]])
     .setFontWeight("bold").setBackground("#EAEDED").setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
   db.getRange(`A${totR}`).setValue(N > 1 ? `⭐ TỔNG CỘNG (${N} THÁNG)` : "⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B");
   db.getRange(`B${totR}:C${totR}`).setHorizontalAlignment("center").setNumberFormat("#,##0");
-  db.getRange(`D${totR}:F${totR}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
+  db.getRange(`D${totR}:E${totR}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
   db.getRange(`E${totR}`).setFontColor("#1E8449");
-  db.getRange(`G${totR}`).setHorizontalAlignment("center").setNumberFormat("0.0%");
+  db.getRange(`F${totR}`).setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400");
+  db.getRange(`G${totR}`).setHorizontalAlignment("center");
 
+  // 4. BẢNG 3 (BÊN PHẢI): 📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG
   db.getRange("I6:M6").merge().setValue("📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
   db.getRange("I7:M7").setValues([["Trạng thái đơn", "Số đơn", "Tỷ lệ", "Doanh thu ước tính", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
   const statuses = [
-    ["🟢 Đã giao / Hoàn thành", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\")", "=IFERROR(J8/$G$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\", 'DonHangShopee'!$J$3:$J$50000)", "Đã vào ví"],
-    ["🟡 Chờ xử lý / Lấy hàng", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\")", "=IFERROR(J9/$G$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$J$3:$J$50000)", "Đang chuẩn bị"],
-    ["🔵 Đang vận chuyển", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\")", "=IFERROR(J10/$G$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\", 'DonHangShopee'!$J$3:$J$50000)", "Đang giao"],
-    ["🔴 Đã hủy đơn", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hủy*\")", "=IFERROR(J11/$G$4, 0)", "=0", "Đơn bị hủy"],
-    ["🟣 Trả hàng / Hoàn tiền", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\")", "=IFERROR(J12/$G$4, 0)", "=0", "Khiếu nại/Hoàn"]
+    ["🟢 Đã giao / Hoàn thành", "=COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\")", "=IFERROR(J8/$E$4, 0)", "=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\", 'DonHangShopee'!$J$3:$J$50000)", "Đã vào ví"],
+    ["🟡 Chờ xử lý / Lấy hàng", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\")", "=IFERROR(J9/$E$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$J$3:$J$50000)", "Đang chuẩn bị"],
+    ["🔵 Đang vận chuyển", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\")", "=IFERROR(J10/$E$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\", 'DonHangShopee'!$J$3:$J$50000)", "Đang giao"],
+    ["🔴 Đã hủy đơn", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hủy*\")", "=IFERROR(J11/$E$4, 0)", "=0", "Đơn bị hủy"],
+    ["🟣 Trả hàng / Hoàn tiền", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\") + COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")", "=IFERROR(J12/$E$4, 0)", "=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")", "Khiếu nại/Hoàn"]
   ];
   statuses.forEach((row, i) => {
     const r = 8 + i;
@@ -433,13 +487,14 @@ function setupDashboard() {
   db.getRange("L8:L12").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
   db.getRange("M8:M12").setHorizontalAlignment("center");
 
+  // 5. BẢNG 4 (BÊN PHẢI): 🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN
   db.getRange("I14:M14").merge().setValue("🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-  db.getRange("I15:M15").setValues([["ĐVVC", "Số đơn", "Tỷ lệ", "Tiền khách trả", "Đánh giá"]]).setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
+  db.getRange("I15:M15").setValues([["ĐVVC", "Số đơn", "Tỷ lệ", "Doanh thu ước tính", "Đánh giá"]]).setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
   [
-    ["SPX Express", "=COUNTIF('DonHangShopee'!D3:D50000, \"*SPX*\")", "=IFERROR(J16/$G$4, 0)", "=SUMIF('DonHangShopee'!D3:D50000, \"*SPX*\", 'DonHangShopee'!K3:K50000)", "Chính"],
-    ["Giao Hàng Nhanh", "=COUNTIF('DonHangShopee'!D3:D50000, \"*Giao Hàng Nhanh*\") + COUNTIF('DonHangShopee'!D3:D50000, \"*GHN*\")", "=IFERROR(J17/$G$4, 0)", "=SUMIFS('DonHangShopee'!K3:K50000, 'DonHangShopee'!D3:D50000, \"*Giao Hàng Nhanh*\") + SUMIFS('DonHangShopee'!K3:K50000, 'DonHangShopee'!D3:D50000, \"*GHN*\")", "Phụ"],
-    ["Đơn vị khác", "=MAX(0, $G$4 - J16 - J17)", "=IFERROR(J18/$G$4, 0)", "=MAX(0, 'DonHangShopee'!K2 - L16 - L17)", "Khác"]
+    ["SPX Express", "=COUNTIF('DonHangShopee'!D3:D50000, \"*SPX*\")", "=IFERROR(J16/$E$4, 0)", "=SUMIF('DonHangShopee'!D3:D50000, \"*SPX*\", 'DonHangShopee'!J3:J50000)", "Chính"],
+    ["Giao Hàng Nhanh", "=COUNTIF('DonHangShopee'!D3:D50000, \"*Giao Hàng Nhanh*\") + COUNTIF('DonHangShopee'!D3:D50000, \"*GHN*\")", "=IFERROR(J17/$E$4, 0)", "=SUMIFS('DonHangShopee'!J3:J50000, 'DonHangShopee'!D3:D50000, \"*Giao Hàng Nhanh*\") + SUMIFS('DonHangShopee'!J3:J50000, 'DonHangShopee'!D3:D50000, \"*GHN*\")", "Phụ"],
+    ["Đơn vị khác", "=MAX(0, $E$4 - J16 - J17)", "=IFERROR(J18/$E$4, 0)", "=MAX(0, 'DonHangShopee'!J2 - L16 - L17)", "Khác"]
   ].forEach((row, i) => {
     const r = 16 + i;
     db.getRange(`I${r}:M${r}`).setValues([[row[0], "", "", "", row[4]]]);
@@ -451,34 +506,42 @@ function setupDashboard() {
   db.getRange("L16:L18").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
   db.getRange("M16:M18").setHorizontalAlignment("center");
 
-  // 📢 DỊCH VỤ HIỂN THỊ — cùng hàng với ĐVVC, ở cột I:M rows 20-22
+  // 6. KHỐI 5 (BÊN PHẢI): 📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE) - BỔ SUNG CHI PHÍ THEO THÁNG
   db.getRange("I20:M20").merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-  db.getRange("I21:K21").merge().setValue("💰 SỐ DƯ TÀI KHOẢN DVHT").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange("I22:K22").merge().setValue(0).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("I21:K22").setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
-  db.getRange("L21").setValue("🔥 CHI PHÍ DVHT HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center").setWrap(true);
-  db.getRange("L22").setValue(0).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("L21:L22").setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
-  db.getRange("M21").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center").setWrap(true);
-  db.getRange("M22").setValue(new Date()).setBackground("#EAEDED").setFontColor("#333").setFontSize(9.5).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
+  db.getRange("I21:J21").merge().setValue("💰 SỐ DƯ TÀI KHOẢN").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
+  db.getRange("I22:J22").merge().setValue(savedBalance).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("I21:J22").setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
+
+  db.getRange("K21").setValue("🔥 CHI PHÍ HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("K22").setValue(savedExpToday).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("K21:K22").setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
+
+  db.getRange("L21").setValue("📅 CHI PHÍ THEO THÁNG").setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("L22").setValue(savedExpMonth).setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("L21:L22").setBorder(true, true, true, true, null, null, "#F9E79F", SpreadsheetApp.BorderStyle.SOLID);
+
+  db.getRange("M21").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("M22").setValue(savedAdsDate).setBackground("#EAEDED").setFontColor("#333").setFontSize(9).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
   db.getRange("M21:M22").setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
 
-  const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 65, 125, 95];
+  const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 80, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
 }
 
-function updateDashboardAdsInfo(ss, balance, expense) {
+function updateDashboardAdsInfo(ss, balance, expenseToday, expenseMonth) {
   try {
     let db = ss.getSheetByName("Dashboard");
     if (!db) return;
-    const finder = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN DVHT").findNext();
+    const finder = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN").findNext();
     if (finder) {
       const r = finder.getRow() + 1;
       const balCol = finder.getColumn();
-      const ef = db.createTextFinder("🔥 CHI PHÍ DVHT HÔM NAY").findNext();
+      const efToday = db.createTextFinder("🔥 CHI PHÍ HÔM NAY").findNext();
+      const efMonth = db.createTextFinder("📅 CHI PHÍ THEO THÁNG").findNext();
       const tf = db.createTextFinder("🕒 CẬP NHẬT").findNext();
       if (balance !== undefined && balance !== null && balance !== "") db.getRange(r, balCol).setValue(Number(balance));
-      if (expense !== undefined && expense !== null && expense !== "" && ef) db.getRange(r, ef.getColumn()).setValue(Number(expense));
+      if (expenseToday !== undefined && expenseToday !== null && expenseToday !== "" && efToday) db.getRange(r, efToday.getColumn()).setValue(Number(expenseToday));
+      if (expenseMonth !== undefined && expenseMonth !== null && expenseMonth !== "" && efMonth) db.getRange(r, efMonth.getColumn()).setValue(Number(expenseMonth));
       if (tf) db.getRange(r, tf.getColumn()).setValue(new Date());
     }
   } catch (e) {}
