@@ -84,11 +84,36 @@
     return null;
   }
 
+  // Lấy số dư ví & chi phí hôm nay từ Shopee Ads (Dịch vụ hiển thị)
+  async function fetchAdsWalletDirect() {
+    try {
+      const match = document.cookie.match(/SPC_CDS=([^;]+)/);
+      const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
+      const res = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+        method: "GET", credentials: "include"
+      }).then(r => r.json()).catch(() => null);
+
+      if (res?.code === 0 && res.data) {
+        const bal = res.data.ads_credit?.available ?? res.data.ads_credit?.total ?? null;
+        const exp = res.data.ads_expense_today?.total ?? null;
+        return {
+          ads_balance: bal !== null ? Math.round(Number(bal) / 100000) : null,
+          ads_expense_today: exp !== null ? Math.round(Number(exp) / 100000) : null
+        };
+      }
+    } catch (e) {}
+    return null;
+  }
+
   // Lắng nghe tiến trình đồng bộ thời gian thực & hỗ trợ background lấy doanh thu
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "sync_progress") {
       const widgetStatus = document.getElementById("soeWidgetStatus");
       if (widgetStatus) widgetStatus.textContent = `${msg.percent || 0}% (${msg.current || 0} đơn)`;
+    }
+    if (msg.action === "fetch_ads_wallet") {
+      fetchAdsWalletDirect().then(data => sendResponse({ success: true, data }));
+      return true;
     }
     if (msg.action === "batch_fetch_income") {
       (async () => {
