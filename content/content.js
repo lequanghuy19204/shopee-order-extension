@@ -116,11 +116,12 @@
     };
   }
 
-  // 3. Đồng bộ toàn bộ đơn (Ủy quyền cho Background Service Worker xử lý)
-  async function triggerBatchSync() {
-    showToast("🚀 Đang kết nối Shopee V3 API & tải toàn bộ đơn hàng...", "loading", 10000);
+  // 3. Đồng bộ đơn (Ủy quyền cho Background Service Worker xử lý)
+  async function triggerBatchSync(syncMode = "months") {
+    const isMonths = syncMode === "months";
+    showToast(`🚀 Đang kết nối Shopee V3 API & đồng bộ ${isMonths ? "tháng gần nhất" : "toàn bộ đơn"}...`, "loading", 10000);
 
-    chrome.runtime.sendMessage({ action: "trigger_full_sync" }, (res) => {
+    chrome.runtime.sendMessage({ action: "trigger_full_sync", syncMode }, (res) => {
       if (res && res.success) {
         showToast(`🎉 ${res.message || "Đã đồng bộ đơn hàng thành công sang Google Sheet!"}`, "success", 7000);
       } else {
@@ -180,9 +181,12 @@
           <span class="soe-panel-title">🛒 Quản Lý Đơn Hàng</span>
           <span class="soe-panel-close" id="soePanelClose">&times;</span>
         </div>
-        <div class="soe-panel-body">
-          <button class="soe-btn soe-btn-primary" id="soeBtnBatchSync" style="background:#ee4d2d; font-size:12.5px; padding:10px;">
-            🚀 ĐỒNG BỘ TẤT CẢ ĐƠN (1-CLICK)
+        <div class="soe-panel-body" style="display:flex; flex-direction:column; gap:8px;">
+          <button class="soe-btn" id="soeBtnWidgetSyncMonths" style="background:#2980b9; color:#fff; font-size:12px; font-weight:700; padding:9px; border-radius:6px; border:none; cursor:pointer;">
+            ⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)
+          </button>
+          <button class="soe-btn" id="soeBtnWidgetSyncAll" style="background:#ee4d2d; color:#fff; font-size:12px; font-weight:700; padding:9px; border-radius:6px; border:none; cursor:pointer;">
+            🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN
           </button>
           <div class="soe-info-row">
             <span class="soe-info-label">Đơn trên trang:</span>
@@ -205,8 +209,11 @@
     floatingWidgetEl.querySelector("#soePanelClose").addEventListener("click", () => {
       floatingWidgetEl.querySelector("#soePanel").classList.remove("active");
     });
-    floatingWidgetEl.querySelector("#soeBtnBatchSync").addEventListener("click", () => {
-      triggerBatchSync();
+    floatingWidgetEl.querySelector("#soeBtnWidgetSyncMonths").addEventListener("click", () => {
+      triggerBatchSync("months");
+    });
+    floatingWidgetEl.querySelector("#soeBtnWidgetSyncAll").addEventListener("click", () => {
+      triggerBatchSync("all");
     });
   }
 
@@ -228,16 +235,22 @@
     isModifyingDOM = true;
     const topBar = document.createElement("div");
     topBar.id = "soeTopSyncBar";
-    topBar.style.cssText = "display:inline-flex; align-items:center; margin:10px 0;";
+    topBar.style.cssText = "display:inline-flex; align-items:center; gap:8px; margin:10px 0;";
     topBar.innerHTML = `
-      <button class="soe-btn soe-btn-primary" id="soeBtnTopSync" style="background:#ee4d2d; padding:10px 16px; font-size:13px; font-weight:700; box-shadow:0 3px 10px rgba(238,77,45,0.35);">
-        🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN SANG SHEET (1-CLICK)
+      <button class="soe-btn" id="soeBtnTopSyncMonths" style="background:#2980b9; color:#fff; padding:9px 14px; font-size:12.5px; font-weight:700; border-radius:6px; border:none; cursor:pointer; box-shadow:0 3px 10px rgba(41,128,185,0.35);">
+        ⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)
+      </button>
+      <button class="soe-btn" id="soeBtnTopSyncAll" style="background:#ee4d2d; color:#fff; padding:9px 14px; font-size:12.5px; font-weight:700; border-radius:6px; border:none; cursor:pointer; box-shadow:0 3px 10px rgba(238,77,45,0.35);">
+        🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN
       </button>
     `;
 
     targetHeader.parentElement.insertBefore(topBar, targetHeader);
-    topBar.querySelector("#soeBtnTopSync").addEventListener("click", () => {
-      triggerBatchSync();
+    topBar.querySelector("#soeBtnTopSyncMonths").addEventListener("click", () => {
+      triggerBatchSync("months");
+    });
+    topBar.querySelector("#soeBtnTopSyncAll").addEventListener("click", () => {
+      triggerBatchSync("all");
     });
     isModifyingDOM = false;
   }

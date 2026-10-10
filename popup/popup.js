@@ -17,9 +17,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   const historyList = document.getElementById("historyList");
 
   // Elements cho 1-Click Sync
+  const syncMonthsSelect = document.getElementById("syncMonthsSelect");
+  const btnSyncMonths = document.getElementById("btnSyncMonths");
+  const syncMonthsSpinner = document.getElementById("syncMonthsSpinner");
+  const syncMonthsBtnText = document.getElementById("syncMonthsBtnText");
+
   const btnSyncAll = document.getElementById("btnSyncAll");
-  const syncBtnText = document.getElementById("syncBtnText");
-  const syncSpinner = document.getElementById("syncSpinner");
+  const syncAllSpinner = document.getElementById("syncAllSpinner");
+  const syncAllBtnText = document.getElementById("syncAllBtnText");
   const syncStatusNotice = document.getElementById("syncStatusNotice");
 
   // Elements cho Lịch Trình Tự Động (Auto Sync)
@@ -117,6 +122,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       autoSyncEnabled: false,
       autoSyncInterval: "00:00:01:00",
       autoSyncIntervalSeconds: 60,
+      syncMonthsCount: 1,
       recentOrders: []
     },
     (res) => {
@@ -126,6 +132,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       toggleFloatingWidget.checked = res.showFloatingWidget !== false;
       toggleAutoSync.checked = res.autoSyncEnabled === true;
       timerIntervalInput.value = res.autoSyncInterval || "00:00:01:00";
+      if (syncMonthsSelect && res.syncMonthsCount) {
+        syncMonthsSelect.value = String(res.syncMonthsCount);
+      }
 
       updateStatusUI(res.webhookUrl);
       updateIntervalHelpText();
@@ -133,6 +142,12 @@ document.addEventListener("DOMContentLoaded", async () => {
       syncStatusFromBackground();
     }
   );
+
+  if (syncMonthsSelect) {
+    syncMonthsSelect.addEventListener("change", () => {
+      chrome.storage.local.set({ syncMonthsCount: Number(syncMonthsSelect.value) });
+    });
+  }
 
   function syncStatusFromBackground() {
     chrome.runtime.sendMessage({ action: "get_sync_status" }, (status) => {
@@ -236,20 +251,33 @@ document.addEventListener("DOMContentLoaded", async () => {
       .join("");
   }
 
-  // 3. NÚT 1-CLICK SYNC: CHẠY TRỰC TIẾP Ở BẤT KỲ TRANG WEB NÀO!
-  btnSyncAll.addEventListener("click", () => {
+  // 3. NÚT ĐỒNG BỘ: HỖ TRỢ ĐỒNG BỘ THEO THÁNG & TOÀN BỘ ĐƠN
+  function triggerSync(syncMode) {
     const webhookUrl = webhookInput.value.trim();
     if (!webhookUrl || !webhookUrl.startsWith("https://script.google.com/macros/s/")) {
       showSyncNotice("error", "⚠️ Bạn chưa lưu Webhook URL Google Sheet. Hãy dán Webhook bên dưới và bấm Lưu!");
       return;
     }
 
-    setSyncLoading(true, "Đang tải đơn từ Shopee...");
-    showSyncNotice("info", "⏳ Đang kết nối trực tiếp Shopee V3 API & gửi sang Google Sheet...");
+    const monthsCount = syncMonthsSelect ? Number(syncMonthsSelect.value) || 1 : 1;
+    const isMonths = syncMode === "months";
+    const activeSpinner = isMonths ? syncMonthsSpinner : syncAllSpinner;
+    const activeBtnText = isMonths ? syncMonthsBtnText : syncAllBtnText;
+    const origText = isMonths ? "⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)" : "🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN (TẤT CẢ LỊCH SỬ)";
 
-    // Gọi trực tiếp Background Service Worker (Không cần tab Shopee!)
-    chrome.runtime.sendMessage({ action: "trigger_full_sync", webhookUrl }, (response) => {
-      setSyncLoading(false);
+    if (btnSyncMonths) btnSyncMonths.disabled = true;
+    if (btnSyncAll) btnSyncAll.disabled = true;
+    if (activeSpinner) activeSpinner.classList.remove("hidden");
+    if (activeBtnText) activeBtnText.textContent = isMonths ? `Đang tải ${monthsCount} tháng...` : "Đang tải toàn bộ đơn...";
+
+    showSyncNotice("info", `⏳ Đang kết nối Shopee V3 API & đồng bộ ${isMonths ? `${monthsCount} tháng gần nhất` : "toàn bộ đơn hàng"}...`);
+
+    chrome.runtime.sendMessage({ action: "trigger_full_sync", webhookUrl, syncMode, monthsCount }, (response) => {
+      if (btnSyncMonths) btnSyncMonths.disabled = false;
+      if (btnSyncAll) btnSyncAll.disabled = false;
+      if (activeSpinner) activeSpinner.classList.add("hidden");
+      if (activeBtnText) activeBtnText.textContent = origText;
+
       if (chrome.runtime.lastError) {
         showSyncNotice("error", `❌ Lỗi kết nối: ${chrome.runtime.lastError.message}`);
         return;
@@ -263,7 +291,14 @@ document.addEventListener("DOMContentLoaded", async () => {
         showSyncNotice("error", `❌ ${response ? response.message : "Đồng bộ thất bại, hãy kiểm tra đăng nhập Shopee"}`);
       }
     });
-  });
+  }
+
+  if (btnSyncMonths) {
+    btnSyncMonths.addEventListener("click", () => triggerSync("months"));
+  }
+  if (btnSyncAll) {
+    btnSyncAll.addEventListener("click", () => triggerSync("all"));
+  }
 
   // 4. LƯU LỊCH TRÌNH TỰ ĐỘNG
   btnSaveSchedule.addEventListener("click", () => {

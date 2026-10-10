@@ -182,137 +182,105 @@
     };
   }
 
-  // Tải trọn bộ tất cả đơn hàng trực tiếp qua Shopee V3 API (Hỗ trợ 1000+ đơn hàng)
-  async function fetchAllShopeeOrdersDirectApi() {
+  // Tải đơn hàng trực tiếp qua Shopee V3 API (Hỗ trợ theo tháng hoặc toàn bộ 1000+ đơn)
+  async function fetchAllShopeeOrdersDirectApi(options = {}) {
+    const { syncMode = "all", monthsCount = 1 } = options;
+    let cutoffTs = 0;
+    if (syncMode === "months" && monthsCount >= 1) {
+      const now = new Date();
+      cutoffTs = new Date(now.getFullYear(), now.getMonth() - (monthsCount - 1), 1, 0, 0, 0).getTime();
+    }
+
     const spcCds = getSpcCds();
     const indexUrl = `/api/v3/order/search_order_list_index?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
     const cardUrl = `/api/v3/order/get_order_list_card_list?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
 
     const PAGE_SIZE = 200;
-    const indexResponse = await fetch(indexUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        order_list_tab: 100, // Tab Tất cả
-        entity_type: 1,
-        pagination: {
-          from_page_number: 1,
-          page_number: 1,
-          page_size: PAGE_SIZE
-        },
-        filter: {
-          fulfillment_type: 0,
-          is_drop_off: 0,
-          fulfillment_source: 0,
-          action_filter: 0
-        },
-        sort: {
-          sort_type: 3,
-          ascending: false
-        }
-      })
-    });
-
-    if (!indexResponse.ok) {
-      throw new Error(`Shopee index API lỗi: ${indexResponse.statusText}`);
-    }
-
-    const indexJson = await indexResponse.json();
-    if (indexJson.code !== 0 && indexJson.message) {
-      throw new Error(`Shopee API lỗi: ${indexJson.message}`);
-    }
-
-    let rawIndexList = [...(indexJson.data?.index_list || [])];
-    const reportedTotal = indexJson.data?.pagination?.total || 0;
-
-    // Tự động phân trang lấy tất cả các trang tiếp theo
-    if (reportedTotal > rawIndexList.length) {
-      const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
-      const pagePromises = [];
-      for (let p = 2; p <= totalPages; p++) {
-        pagePromises.push(
-          fetch(indexUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              order_list_tab: 100,
-              entity_type: 1,
-              pagination: { from_page_number: 1, page_number: p, page_size: PAGE_SIZE },
-              filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
-              sort: { sort_type: 3, ascending: false }
-            })
-          })
-            .then((r) => r.json())
-            .then((j) => j.data?.index_list || [])
-            .catch(() => [])
-        );
-      }
-      const otherPages = await Promise.all(pagePromises);
-      otherPages.forEach((list) => {
-        if (Array.isArray(list)) rawIndexList.push(...list);
+    async function fetchIndexPage(page) {
+      const r = await fetch(indexUrl, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({
+          order_list_tab: 100, entity_type: 1,
+          pagination: { from_page_number: 1, page_number: page, page_size: PAGE_SIZE },
+          filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
+          sort: { sort_type: 3, ascending: false }
+        })
       });
+      if (!r.ok) throw new Error(`Shopee index API lỗi: ${r.statusText}`);
+      const j = await r.json();
+      if (j.code !== 0 && j.message) throw new Error(`Shopee API lỗi: ${j.message}`);
+      return j.data || {};
     }
 
-    // Khử trùng lặp mã đơn nếu có
+    const firstPage = await fetchIndexPage(1);
+    let rawIndex = [...(firstPage.index_list || [])];
+    const reportedTotal = firstPage.pagination?.total || 0;
+
+    if (syncMode === "all" && reportedTotal > rawIndex.length) {
+      const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
+      const pages = await Promise.all(
+        Array.from({ length: totalPages - 1 }, (_, i) => fetchIndexPage(i + 2).then(d => d.index_list || []).catch(() => []))
+      );
+      pages.forEach(l => rawIndex.push(...l));
+    }
+
     const uniqueMap = new Map();
-    rawIndexList.forEach((item) => {
+    rawIndex.forEach((item) => {
       const key = item.order_id || `${item.package_number}_${item.order_sn}` || JSON.stringify(item);
       if (!uniqueMap.has(key)) uniqueMap.set(key, item);
     });
-    const indexList = Array.from(uniqueMap.values());
-
-    if (indexList.length === 0) {
-      return [];
-    }
-
-    // Bước 2: Chia thành từng nhóm 5 đơn (giới hạn tối đa của Shopee API)
-    const CHUNK_SIZE = 5;
-    const chunks = [];
-    for (let i = 0; i < indexList.length; i += CHUNK_SIZE) {
-      chunks.push(indexList.slice(i, i + CHUNK_SIZE));
-    }
+    let indexList = Array.from(uniqueMap.values());
+    if (indexList.length === 0) return [];
 
     const allFormattedOrders = [];
+    const CHUNK_SIZE = 5;
     const CONCURRENCY = 20;
+    let pageIdx = 1;
 
-    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-      const slice = chunks.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        slice.map((chunk) =>
-          fetch(cardUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              order_list_tab: 100,
-              need_count_down_desc: false,
-              order_param_list: chunk
-            })
-          })
-            .then((r) => r.json())
-            .then((res) => res.data?.card_list || [])
-            .catch(() => [])
-        )
-      );
+    while (indexList.length > 0) {
+      const chunks = [];
+      for (let i = 0; i < indexList.length; i += CHUNK_SIZE) chunks.push(indexList.slice(i, i + CHUNK_SIZE));
 
-      batchResults.forEach((cards) => {
-        cards.forEach((item) => {
-          const cardObj = extractCardObject(item);
-          const parsed = formatShopeeOrderCard(cardObj);
-          if (parsed) allFormattedOrders.push(parsed);
+      let reachedCutoff = false;
+      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+        const slice = chunks.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.all(
+          slice.map(chunk => fetch(cardUrl, {
+            method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+            body: JSON.stringify({ order_list_tab: 100, need_count_down_desc: false, order_param_list: chunk })
+          }).then(r => r.json()).then(res => res.data?.card_list || []).catch(() => []))
+        );
+
+        batchResults.forEach(cards => {
+          cards.forEach(item => {
+            const parsed = formatShopeeOrderCard(extractCardObject(item));
+            if (parsed) {
+              allFormattedOrders.push(parsed);
+              if (cutoffTs && new Date(parsed.created_at).getTime() < cutoffTs) reachedCutoff = true;
+            }
+          });
         });
-      });
+
+        if (reachedCutoff) break;
+      }
+
+      if (syncMode === "all" || reachedCutoff) break;
+
+      pageIdx++;
+      if (pageIdx * PAGE_SIZE - PAGE_SIZE >= reportedTotal) break;
+      try {
+        const nextPage = await fetchIndexPage(pageIdx);
+        const nextList = nextPage.index_list || [];
+        if (nextList.length === 0) break;
+        indexList = nextList;
+      } catch (e) {
+        break;
+      }
     }
 
-    allFormattedOrders.sort((a, b) => {
-      const timeA = new Date(a.created_at).getTime();
-      const timeB = new Date(b.created_at).getTime();
-      if (timeB !== timeA) return timeB - timeA;
-      return String(b.order_sn).localeCompare(String(a.order_sn));
-    });
-
+    if (cutoffTs) {
+      return allFormattedOrders.filter(o => new Date(o.created_at).getTime() >= cutoffTs);
+    }
     return allFormattedOrders;
   }
 
@@ -328,7 +296,10 @@
 
     if (event.data.action === "FETCH_ALL_ORDERS_VIA_SHOPEE_API") {
       try {
-        const orders = await fetchAllShopeeOrdersDirectApi();
+        const orders = await fetchAllShopeeOrdersDirectApi({
+          syncMode: event.data.syncMode || "all",
+          monthsCount: event.data.monthsCount || 1
+        });
         window.postMessage(
           {
             target: "SHOPEE_CONTENT_SCRIPT",

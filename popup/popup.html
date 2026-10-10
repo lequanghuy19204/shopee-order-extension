@@ -29,13 +29,41 @@
       <section class="card sync-hero-card">
         <div class="sync-hero-header">
           <span class="sync-hero-badge">1-CLICK SYNC</span>
-          <span class="sync-hero-title">Đồng Bộ Tất Cả Đơn Hàng</span>
+          <span class="sync-hero-title">Đồng Bộ Đơn Hàng</span>
         </div>
-        <p class="sync-hero-desc">Bấm đồng bộ trực tiếp từ <b>bất kỳ trang web nào</b> mà không cần mở tab Shopee!</p>
+        <p class="sync-hero-desc">Đồng bộ trực tiếp từ <b>bất kỳ trang web nào</b> mà không cần mở tab Shopee!</p>
 
+        <!-- Chế độ 1: Đồng bộ theo tháng gần nhất (Giảm tải) -->
+        <div class="sync-mode-box">
+          <div class="sync-mode-row">
+            <span class="sync-mode-label">⚡ Khoảng thời gian:</span>
+            <select id="syncMonthsSelect" class="sync-select">
+              <option value="1">1 tháng (Tháng hiện tại)</option>
+              <option value="2">2 tháng gần nhất</option>
+              <option value="3">3 tháng gần nhất</option>
+              <option value="4">4 tháng gần nhất</option>
+              <option value="5">5 tháng gần nhất</option>
+              <option value="6">6 tháng gần nhất</option>
+              <option value="7">7 tháng gần nhất</option>
+              <option value="8">8 tháng gần nhất</option>
+              <option value="9">9 tháng gần nhất</option>
+              <option value="10">10 tháng gần nhất</option>
+              <option value="11">11 tháng gần nhất</option>
+              <option value="12">12 tháng (1 năm)</option>
+            </select>
+          </div>
+          <button id="btnSyncMonths" class="btn btn-sync-months">
+            <span id="syncMonthsSpinner" class="spinner-icon hidden">⏳</span>
+            <span id="syncMonthsBtnText">⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)</span>
+          </button>
+        </div>
+
+        <div class="sync-divider"><span>HOẶC</span></div>
+
+        <!-- Chế độ 2: Đồng bộ toàn bộ đơn hàng -->
         <button id="btnSyncAll" class="btn btn-sync-hero">
-          <span id="syncSpinner" class="spinner-icon hidden">⏳</span>
-          <span id="syncBtnText">🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN SANG SHEET</span>
+          <span id="syncAllSpinner" class="spinner-icon hidden">⏳</span>
+          <span id="syncAllBtnText">🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN (TẤT CẢ LỊCH SỬ)</span>
         </button>
 
         <div id="syncStatusNotice" class="sync-notice hidden"></div>
