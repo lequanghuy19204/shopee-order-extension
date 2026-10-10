@@ -172,9 +172,11 @@ document.addEventListener("DOMContentLoaded", async () => {
           second: "2-digit"
         });
         const count = status.lastSyncResult?.totalOrders || 0;
+        const dur = status.lastSyncResult?.durationText || status.lastSyncDurationText || "";
+        const durStr = dur ? ` - ${dur}` : "";
         const resText = status.lastSyncResult?.cancelled
-          ? "Đã hủy"
-          : (status.lastSyncResult?.success ? `Sync ${count} đơn` : "Lỗi");
+          ? `Đã hủy${durStr}`
+          : (status.lastSyncResult?.success ? `Sync ${count} đơn${durStr}` : `Lỗi${durStr}`);
         lastSyncInfo.textContent = `${timeStr} (${resText})`;
       } else {
         lastSyncInfo.textContent = "Chưa có";
@@ -185,6 +187,9 @@ document.addEventListener("DOMContentLoaded", async () => {
       // Khôi phục thanh tiến trình nếu đang có đồng bộ chạy ngầm
       if (status.isSyncing && status.progress && !status.progress.isDone) {
         const p = status.progress;
+        if (p.startTime) {
+          startLiveSyncTimer(p.startTime);
+        }
         if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
         if (syncProgressText) syncProgressText.textContent = p.title || "Đang đồng bộ...";
         if (syncProgressPercent) syncProgressPercent.textContent = `${p.percent || 0}%`;
@@ -295,8 +300,43 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   let hideProgressTimeout = null;
+  let liveSyncTimer = null;
+  let activeSyncStartTime = 0;
+
+  function formatDurationTimer(sec) {
+    if (!sec || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+
+  function startLiveSyncTimer(startTime) {
+    activeSyncStartTime = startTime || Date.now();
+    if (liveSyncTimer) clearInterval(liveSyncTimer);
+    function tick() {
+      if (!activeSyncStartTime) return;
+      const elapsedSec = Math.floor((Date.now() - activeSyncStartTime) / 1000);
+      const timerBadge = `⏱️ ${formatDurationTimer(elapsedSec)}`;
+      const baseDetail = syncProgressDetail?.getAttribute("data-base-detail") || syncProgressDetail?.textContent || "";
+      const cleanDetail = baseDetail.split(" • ⏱️")[0];
+      if (syncProgressDetail) {
+        syncProgressDetail.textContent = `${cleanDetail} • ${timerBadge}`;
+      }
+    }
+    liveSyncTimer = setInterval(tick, 1000);
+    tick();
+  }
+
+  function stopLiveSyncTimer() {
+    if (liveSyncTimer) {
+      clearInterval(liveSyncTimer);
+      liveSyncTimer = null;
+    }
+    activeSyncStartTime = 0;
+  }
 
   function resetSyncButtonsUI() {
+    stopLiveSyncTimer();
     if (btnSyncMonths) btnSyncMonths.disabled = false;
     if (btnSyncAll) btnSyncAll.disabled = false;
     if (syncMonthsSpinner) syncMonthsSpinner.classList.add("hidden");
@@ -317,11 +357,16 @@ document.addEventListener("DOMContentLoaded", async () => {
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "sync_progress") {
       if (msg.isDone || msg.isSyncing === false) {
+        stopLiveSyncTimer();
         resetSyncButtonsUI();
         if (syncProgressText) syncProgressText.textContent = msg.title || "Đã hoàn thành!";
         if (syncProgressPercent) syncProgressPercent.textContent = "100%";
         if (syncProgressBar) syncProgressBar.style.width = "100%";
-        if (syncProgressDetail && msg.detail) syncProgressDetail.textContent = msg.detail;
+        if (syncProgressDetail && msg.detail) {
+          const durStr = msg.durationText ? ` (Thời gian: ${msg.durationText})` : "";
+          syncProgressDetail.textContent = `${msg.detail}${durStr}`;
+        }
+        syncStatusFromBackground();
         hideProgressWithDelay(2500);
         return;
       }
@@ -331,7 +376,22 @@ document.addEventListener("DOMContentLoaded", async () => {
       if (syncProgressText && msg.title) syncProgressText.textContent = msg.title;
       if (syncProgressPercent) syncProgressPercent.textContent = `${msg.percent || 0}%`;
       if (syncProgressBar) syncProgressBar.style.width = `${msg.percent || 0}%`;
-      if (syncProgressDetail) syncProgressDetail.textContent = msg.detail || `Đã xử lý ${msg.current || 0}/${msg.total || 0} đơn`;
+
+      const detailText = msg.detail || `Đã xử lý ${msg.current || 0}/${msg.total || 0} đơn`;
+      if (syncProgressDetail) {
+        syncProgressDetail.setAttribute("data-base-detail", detailText);
+        if (activeSyncStartTime) {
+          const elapsedSec = Math.floor((Date.now() - activeSyncStartTime) / 1000);
+          syncProgressDetail.textContent = `${detailText} • ⏱️ ${formatDurationTimer(elapsedSec)}`;
+        } else {
+          syncProgressDetail.textContent = detailText;
+        }
+      }
+
+      if (msg.startTime && !liveSyncTimer) {
+        startLiveSyncTimer(msg.startTime);
+      }
+
       if (btnCancelSync) {
         btnCancelSync.classList.remove("hidden");
         btnCancelSync.disabled = false;
@@ -379,7 +439,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (syncProgressText) syncProgressText.textContent = isMonths ? `Đang tính toán ${monthsCount} tháng gần nhất...` : "Đang chuẩn bị quét đơn...";
     if (syncProgressPercent) syncProgressPercent.textContent = "0%";
     if (syncProgressBar) syncProgressBar.style.width = "0%";
-    if (syncProgressDetail) syncProgressDetail.textContent = "Đang kết nối Shopee API...";
+    if (syncProgressDetail) {
+      syncProgressDetail.setAttribute("data-base-detail", "Đang kết nối Shopee API...");
+      syncProgressDetail.textContent = "Đang kết nối Shopee API...";
+    }
+
+    startLiveSyncTimer(Date.now());
 
     if (btnCancelSync) {
       btnCancelSync.classList.remove("hidden");
@@ -390,6 +455,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     showSyncNotice("info", `⏳ Đang kết nối Shopee V3 API & đồng bộ ${isMonths ? `${monthsCount} tháng gần nhất` : "toàn bộ đơn hàng"}...`);
 
     chrome.runtime.sendMessage({ action: "trigger_full_sync", webhookUrl, syncMode, monthsCount }, (response) => {
+      stopLiveSyncTimer();
       resetSyncButtonsUI();
 
       if (chrome.runtime.lastError) {

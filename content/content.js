@@ -125,7 +125,7 @@
       (async () => {
         const orderIds = msg.orderIds || [];
         const results = [];
-        const CHUNK = 8;
+        const CHUNK = 16;
         for (let i = 0; i < orderIds.length; i += CHUNK) {
           const slice = orderIds.slice(i, i + CHUNK);
           const chunkRes = await Promise.all(
@@ -137,7 +137,7 @@
             })
           );
           results.push(...chunkRes);
-          if (i + CHUNK < orderIds.length) await new Promise(r => setTimeout(r, 25));
+          if (i + CHUNK < orderIds.length) await new Promise(r => setTimeout(r, 20));
         }
         sendResponse({ success: true, data: results });
       })();
