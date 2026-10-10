@@ -1,165 +1,203 @@
 /**
- * GOOGLE APPS SCRIPT QUẢN LÝ ĐƠN HÀNG SHOPEE
- * Phiên bản 2.3:
+ * GOOGLE APPS SCRIPT QUẢN LÝ ĐƠN HÀNG SHOPEE - v2.4
  * - DÒNG 2: HÀNG TỔNG CỘNG GHIM CỐ ĐỊNH (Frozen cùng Tiêu đề Dòng 1)
- * - DÒNG 3 TRỞ ĐI: Dữ liệu đơn hàng Shopee
- * - Công thức chuẩn xác: =SUM(H3:H50000), =SUM(I3:I50000), =SUM(J3:J50000), =SUM(K3:K50000)
- * - 100% KHÔNG BAO GIỜ BỊ #REF!
- * - Trạng thái đơn (Cột L) & Hoàn/Hủy (Cột M) là Text tự do nguyên văn từ Shopee
+ * - TỰ ĐỘNG TẠO & CẬP NHẬT SHEET THEO THÁNG: Các sheet "Tháng 7", "Tháng 8", "Tháng 9"...
+ *   tự động sinh ra dựa trên ngày tạo đơn hàng và có đầy đủ 14 cột, hàng tổng dòng 2.
+ * - SHEET CHÍNH "DonHangShopee": Lưu toàn bộ lịch sử đơn hàng phục vụ Dashboard.
+ * - SHEET "Dashboard": Báo cáo KPI, doanh số 6 tháng, phễu trạng thái, đối soát ĐVVC.
+ * - Xử lý 100% trong RAM JavaScript (Zero cell-by-cell RPC calls).
  */
 
 const SHEET_NAME = "DonHangShopee";
 
-/**
- * MENU TIỆN ÍCH TRÊN GOOGLE SHEET: Tự động thêm menu "🛒 Shopee Manager" khi mở Sheet
- */
 function onOpen() {
   try {
-    SpreadsheetApp.getUi()
-      .createMenu("🛒 Shopee Manager")
+    SpreadsheetApp.getUi().createMenu("🛒 Shopee Manager")
       .addItem("📊 Tạo / Cập nhật Sheet Dashboard", "setupDashboard")
+      .addItem("📅 Phân loại đơn vào các Sheet Tháng", "splitOrdersToMonthlySheets")
       .addItem("🔄 Sắp xếp đơn mới nhất", "sortByNewestCreated")
       .addItem("🛠️ Thiết lập lại bảng DonHangShopee", "setupSheet")
       .addToUi();
   } catch (e) {}
 }
 
-/**
- * BƯỚC 1: HÀM THIẾT LẬP GIAO DIỆN BẢNG VỚI HÀNG TỔNG GHIM TẠI DÒNG 2
- */
-function setupSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(SHEET_NAME);
-
-  if (!sheet) {
-    sheet = ss.insertSheet(SHEET_NAME);
+function parseOrderDate(val) {
+  if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
+  if (!val) return new Date();
+  const str = String(val).trim();
+  const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (dmyMatch) {
+    const timeMatch = str.match(/(\d{1,2}):(\d{1,2})/);
+    return new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10),
+      timeMatch ? parseInt(timeMatch[1], 10) : 12, timeMatch ? parseInt(timeMatch[2], 10) : 0, 0);
   }
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? new Date() : d;
+}
 
+function getMonthSheetName(dateVal) {
+  return "Tháng " + (parseOrderDate(dateVal).getMonth() + 1);
+}
+
+function formatSheetTemplate(sheet) {
   sheet.clear();
-
   const headers = [
-    "Ngày tạo",
-    "Mã đơn hàng",
-    "Mã vận đơn",
-    "ĐVVC",
-    "Tên người nhận",
-    "Khu vực nhận",
-    "Chi tiết sản phẩm",
-    "Tổng SL",
-    "Tiền khách trả",
-    "Phí sàn Shopee",
-    "TIỀN THỰC NHẬN",
-    "Trạng thái đơn",
-    "Tình trạng Hoàn/Hủy",
-    "Ngày cập nhật"
+    "Ngày tạo", "Mã đơn hàng", "Mã vận đơn", "ĐVVC", "Tên người nhận",
+    "Khu vực nhận", "Chi tiết sản phẩm", "Tổng SL", "Tiền khách trả",
+    "Phí sàn Shopee", "TIỀN THỰC NHẬN", "Trạng thái đơn", "Tình trạng Hoàn/Hủy", "Ngày cập nhật"
   ];
-
-  // 1. Ghi tiêu đề ở DÒNG 1
-  const headerRange = sheet.getRange(1, 1, 1, headers.length);
-  headerRange.setValues([headers]);
-  headerRange.setFontWeight("bold");
-  headerRange.setFontSize(10);
-  headerRange.setFontColor("#FFFFFF");
-  headerRange.setVerticalAlignment("middle");
-  headerRange.setHorizontalAlignment("center");
+  const hRange = sheet.getRange(1, 1, 1, headers.length);
+  hRange.setValues([headers]).setFontWeight("bold").setFontSize(10).setFontColor("#FFFFFF")
+    .setVerticalAlignment("middle").setHorizontalAlignment("center");
   sheet.setRowHeight(1, 38);
 
-  // 2. Đổ màu tiêu đề theo 5 cụm nghiệp vụ trực quan
-  sheet.getRange("A1:D1").setBackground("#34495E"); // Cụm Đơn vị & Mã (Navy)
-  sheet.getRange("E1:F1").setBackground("#2980B9"); // Cụm Khách hàng (Blue)
-  sheet.getRange("G1:H1").setBackground("#D35400"); // Cụm Sản phẩm (Shopee Orange)
-  sheet.getRange("I1:K1").setBackground("#27AE60"); // Cụm Tài chính (Green)
-  sheet.getRange("L1:N1").setBackground("#8E44AD").setWrap(true); // Cụm Trạng thái (Purple)
+  [["A1:D1","#34495E"], ["E1:F1","#2980B9"], ["G1:H1","#D35400"], ["I1:K1","#27AE60"], ["L1:N1","#8E44AD"]]
+    .forEach(([rng, bg]) => sheet.getRange(rng).setBackground(bg));
+  sheet.getRange("L1:N1").setWrap(true);
 
-  // 3. Chỉnh chiều rộng các cột
-  const columnWidths = [135, 165, 145, 100, 150, 140, 320, 80, 130, 125, 145, 140, 180, 135];
-  columnWidths.forEach((width, index) => {
-    sheet.setColumnWidth(index + 1, width);
-  });
-
-  // 4. GHIM CỐ ĐỊNH 2 HÀNG ĐẦU (Dòng 1: Tiêu đề + Dòng 2: TỔNG CỘNG) & Cột B (Mã đơn hàng)
+  [135, 165, 145, 100, 150, 140, 320, 80, 130, 125, 145, 140, 180, 135].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
   sheet.setFrozenRows(2);
   sheet.setFrozenColumns(2);
 
-  // 5. THIẾT LẬP HÀNG TỔNG CỘNG CỐ ĐỊNH TẠI DÒNG 2
   sheet.setRowHeight(2, 34);
-  const totalRange = sheet.getRange("A2:N2");
-  totalRange.setBackground("#EAEDED"); // Màu xám nhạt cao cấp
-  totalRange.setFontWeight("bold");
-  totalRange.setFontSize(10.5);
-  totalRange.setVerticalAlignment("middle");
-  totalRange.setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE); // Viền kép kế toán
+  sheet.getRange("A2:N2").setBackground("#EAEDED").setFontWeight("bold").setFontSize(10.5).setVerticalAlignment("middle")
+    .setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
 
-  sheet.getRange("B2").setValue("⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B"); // Chữ đỏ nổi bật
-
-  // Công thức SUM chuẩn xác có giới hạn (H3:H50000) -> 100% KHÔNG BAO GIỜ BỊ #REF!
+  sheet.getRange("B2").setValue("⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B");
   sheet.getRange("H2").setFormula("=SUM(H3:H50000)").setNumberFormat("#,##0").setHorizontalAlignment("center");
-  sheet.getRange("I2").setFormula("=SUM(I3:I50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
-  sheet.getRange("J2").setFormula("=SUM(J3:J50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
-  sheet.getRange("K2").setFormula("=SUM(K3:K50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right").setFontColor("#1E8449"); // Xanh lá đậm
+  sheet.getRange("I2:K2").setFormulas([["=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]])
+    .setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
+  sheet.getRange("K2").setFontColor("#1E8449");
 
-  // 6. Định dạng cho các dòng dữ liệu đơn hàng (Từ DÒNG 3 trở đi)
-  const maxRows = 1000;
+  const maxRows = Math.max(1000, sheet.getMaxRows() - 2);
   sheet.getRange(3, 1, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm").setHorizontalAlignment("center");
-  sheet.getRange(3, 2, maxRows, 1).setNumberFormat("@").setFontWeight("bold").setHorizontalAlignment("center"); // Mã đơn
-  sheet.getRange(3, 3, maxRows, 2).setNumberFormat("@").setHorizontalAlignment("center"); // Mã VĐ, ĐVVC
-  sheet.getRange(3, 5, maxRows, 2).setHorizontalAlignment("left"); // Người nhận, Khu vực
-  sheet.getRange(3, 7, maxRows, 1).setWrap(true).setHorizontalAlignment("left"); // Chi tiết SP wrap text
-  sheet.getRange(3, 8, maxRows, 1).setNumberFormat("#,##0").setHorizontalAlignment("center"); // Tổng SL
-  sheet.getRange(3, 9, maxRows, 3).setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right"); // Tiền tệ VND
-  sheet.getRange(3, 11, maxRows, 1).setFontWeight("bold").setFontColor("#1E8449"); // Cột TIỀN THỰC NHẬN nổi bật
-
-  // Trạng thái đơn (L) & Hoàn/Hủy (M): Text tự do, không hạn chế dropdown
-  sheet.getRange(3, 12, maxRows, 2)
-    .clearDataValidations()
-    .setNumberFormat("@")
-    .setHorizontalAlignment("center");
-
+  sheet.getRange(3, 2, maxRows, 1).setNumberFormat("@").setFontWeight("bold").setHorizontalAlignment("center");
+  sheet.getRange(3, 3, maxRows, 2).setNumberFormat("@").setHorizontalAlignment("center");
+  sheet.getRange(3, 5, maxRows, 2).setHorizontalAlignment("left");
+  sheet.getRange(3, 7, maxRows, 1).setWrap(true).setHorizontalAlignment("left");
+  sheet.getRange(3, 8, maxRows, 1).setNumberFormat("#,##0").setHorizontalAlignment("center");
+  sheet.getRange(3, 9, maxRows, 3).setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
+  sheet.getRange(3, 11, maxRows, 1).setFontWeight("bold").setFontColor("#1E8449");
+  sheet.getRange(3, 12, maxRows, 2).clearDataValidations().setNumberFormat("@").setHorizontalAlignment("center");
   sheet.getRange(3, 14, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm").setHorizontalAlignment("center");
 
-  // 7. Định dạng màu tự động theo từ khóa trạng thái
   sheet.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=REGEXMATCH(L3, "(?i)đã giao|hoàn thành")').setBackground("#D4EFDF").setFontColor("#145A32").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build(),
     SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=REGEXMATCH(L3, "(?i)hủy|trả hàng|hoàn tiền")').setBackground("#FADBD8").setFontColor("#78281F").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build(),
     SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=REGEXMATCH(L3, "(?i)đang giao|vận chuyển|chuẩn bị")').setBackground("#FCF3CF").setFontColor("#7D6608").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build()
   ]);
+}
 
+function setupSheet() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+  formatSheetTemplate(sheet);
   try {
     setupDashboard();
     SpreadsheetApp.getUi().alert("✅ Đã thiết lập xong Google Sheet (DonHangShopee & Dashboard)!");
   } catch (e) {}
 }
 
-/**
- * BƯỚC 2: GET ENDPOINT (KIỂM TRA KẾT NỐI)
- */
+function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
+  if (!sheet || !ordersList || ordersList.length === 0) return { created: 0, updated: 0, total: 0 };
+  const values = sheet.getDataRange().getValues();
+  const existingRowCount = values.length;
+  const currentRows = [];
+  const orderRowMap = new Map();
+
+  for (let i = 2; i < existingRowCount; i++) {
+    const row = values[i];
+    const sn = String(row[1] || "").trim();
+    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG")) continue;
+    orderRowMap.set(sn, currentRows.length);
+    currentRows.push(row);
+  }
+
+  const now = new Date();
+  let createdCount = 0;
+  let updatedCount = 0;
+
+  for (let k = 0; k < ordersList.length; k++) {
+    const order = ordersList[k];
+    const sn = String(order.order_sn || order.ordersn || "").trim();
+    if (!sn) continue;
+
+    if (orderRowMap.has(sn)) {
+      const idx = orderRowMap.get(sn);
+      const r = currentRows[idx];
+      if (order.order_status) r[11] = String(order.order_status);
+      if (order.return_status) r[12] = String(order.return_status);
+      if (order.fee_amount !== undefined && order.fee_amount !== "") r[9] = Number(order.fee_amount);
+      if (order.escrow_amount !== undefined && order.escrow_amount !== "") r[10] = Number(order.escrow_amount);
+      if (order.tracking_no) r[2] = String(order.tracking_no);
+      if (order.shipping_carrier) r[3] = String(order.shipping_carrier);
+      if (order.buyer_name) r[4] = String(order.buyer_name);
+      if (order.shipping_area) r[5] = String(order.shipping_area);
+      if (order.items_detail && (String(r[6]).startsWith("• Đơn hàng") || !r[6])) r[6] = order.items_detail;
+      if (order.total_quantity) r[7] = Number(order.total_quantity);
+      if (order.total_amount) r[8] = Number(order.total_amount);
+      r[13] = now;
+      updatedCount++;
+    } else {
+      const newRow = [
+        order.created_at ? parseOrderDate(order.created_at) : now, sn,
+        order.tracking_no || "", order.shipping_carrier || "", order.buyer_name || "",
+        order.shipping_area || "", order.items_detail || "• Đơn hàng " + sn,
+        Number(order.total_quantity) || 1, Number(order.total_amount) || 0,
+        Number(order.fee_amount) || 0, Number(order.escrow_amount) || 0,
+        String(order.order_status || "Chờ lấy hàng"), String(order.return_status || "Bình thường"), now
+      ];
+      orderRowMap.set(sn, currentRows.length);
+      currentRows.push(newRow);
+      createdCount++;
+    }
+  }
+
+  currentRows.sort((a, b) => {
+    const timeA = parseOrderDate(a[0]).getTime();
+    const timeB = parseOrderDate(b[0]).getTime();
+    if (timeB !== timeA) return timeB - timeA;
+    return String(b[1] || "").localeCompare(String(a[1] || ""));
+  });
+
+  const neededMaxRows = currentRows.length + 2;
+  const currentMaxRows = sheet.getMaxRows();
+  if (neededMaxRows > currentMaxRows) {
+    sheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
+  }
+
+  if (currentRows.length > 0) {
+    sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
+  }
+
+  if (isLastBatch) {
+    const prevDataRows = existingRowCount - 2;
+    if (prevDataRows > currentRows.length) {
+      sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 14).clearContent();
+    }
+    sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+  }
+
+  return { created: createdCount, updated: updatedCount, total: currentRows.length };
+}
+
 function doGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
-    success: true,
-    message: "Shopee Order Webhook is ready!",
-    timestamp: new Date().toISOString()
+    success: true, message: "Shopee Order Webhook is ready!", timestamp: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
-/**
- * BƯỚC 3: POST ENDPOINT TIẾP NHẬN DỮ LIỆU TỪ EXTENSION
- */
 function doPost(e) {
   const startTime = Date.now();
   try {
     let data;
-    if (e && e.postData && e.postData.contents) {
-      data = JSON.parse(e.postData.contents);
-    } else {
-      data = e.parameter || {};
-    }
+    if (e && e.postData && e.postData.contents) data = JSON.parse(e.postData.contents);
+    else data = e.parameter || {};
 
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
-
     const isLastBatch = data.is_last_batch !== false;
 
-    // Tự động khởi tạo hoặc làm mới Sheet Dashboard chỉ ở mẻ cuối (tiết kiệm thời gian mẻ trung gian)
     if (isLastBatch) {
       const dbSheet = ss.getSheetByName("Dashboard");
       if (!dbSheet || dbSheet.getLastRow() < 2) {
@@ -168,225 +206,139 @@ function doPost(e) {
     }
 
     let ordersList = [];
-    if (data.orders && Array.isArray(data.orders)) {
-      ordersList = data.orders;
-    } else if (data.order_sn) {
-      ordersList = [data];
-    }
+    if (data.orders && Array.isArray(data.orders)) ordersList = data.orders;
+    else if (data.order_sn) ordersList = [data];
 
     if (ordersList.length === 0) {
       return ContentService.createTextOutput(JSON.stringify({
-        success: false,
-        message: "Lỗi: Không tìm thấy dữ liệu đơn hàng nào để xử lý"
+        success: false, message: "Lỗi: Không tìm thấy dữ liệu đơn hàng nào để xử lý"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 
-    // 1. Đọc toàn bộ bảng vào RAM 1 lần duy nhất (Zero cell-by-cell RPC calls)
-    const dataRange = sheet.getDataRange();
-    const existingValues = dataRange.getValues();
-    const existingRowCount = existingValues.length;
+    // 1. Cập nhật vào Sheet chính DonHangShopee
+    const masterResult = upsertOrdersToSheet(sheet, ordersList, isLastBatch);
 
-    // 2. Lọc bỏ hàng tổng thừa từ phiên bản cũ và lập chỉ mục đơn hàng trong RAM
-    const currentRows = [];
-    const orderRowMap = new Map();
+    // 2. Gom nhóm đơn hàng theo tháng ngày tạo
+    const ordersByMonth = new Map();
+    for (let i = 0; i < ordersList.length; i++) {
+      const ord = ordersList[i];
+      const mName = getMonthSheetName(ord.created_at);
+      if (!ordersByMonth.has(mName)) ordersByMonth.set(mName, []);
+      ordersByMonth.get(mName).push(ord);
+    }
 
-    for (let i = 2; i < existingRowCount; i++) {
-      const row = existingValues[i];
-      const sn = String(row[1] || "").trim();
-      const colA = String(row[0] || "").toUpperCase();
-      if (!sn || sn.toUpperCase().includes("TỔNG CỘNG") || sn.toUpperCase().includes("TONG CONG") || colA.includes("TỔNG CỘNG")) {
-        continue;
+    // 3. Tự động tạo mới hoặc cập nhật dữ liệu vào từng Sheet Tháng (Tháng 7, Tháng 8, Tháng 9...)
+    const updatedMonths = [];
+    for (const [mName, mOrders] of ordersByMonth.entries()) {
+      let mSheet = ss.getSheetByName(mName);
+      if (!mSheet) {
+        mSheet = ss.insertSheet(mName);
+        formatSheetTemplate(mSheet);
       }
-      orderRowMap.set(sn, currentRows.length);
-      currentRows.push(row);
-    }
-
-    const now = new Date();
-    let createdCount = 0;
-    let updatedCount = 0;
-
-    // 3. Duyệt và cập nhật / thêm đơn mới hoàn toàn trong RAM
-    for (let k = 0; k < ordersList.length; k++) {
-      const order = ordersList[k];
-      const sn = String(order.order_sn || order.ordersn || "").trim();
-      if (!sn) continue;
-
-      if (orderRowMap.has(sn)) {
-        const idx = orderRowMap.get(sn);
-        const r = currentRows[idx];
-
-        if (order.order_status) r[11] = String(order.order_status);
-        if (order.return_status) r[12] = String(order.return_status);
-        if (order.fee_amount !== undefined && order.fee_amount !== "") r[9] = Number(order.fee_amount);
-        if (order.escrow_amount !== undefined && order.escrow_amount !== "") r[10] = Number(order.escrow_amount);
-        if (order.tracking_no) r[2] = String(order.tracking_no);
-        if (order.shipping_carrier) r[3] = String(order.shipping_carrier);
-        if (order.buyer_name) r[4] = String(order.buyer_name);
-        if (order.shipping_area) r[5] = String(order.shipping_area);
-        if (order.items_detail && (String(r[6]).startsWith("• Đơn hàng") || !r[6])) {
-          r[6] = order.items_detail;
-        }
-        if (order.total_quantity) r[7] = Number(order.total_quantity);
-        if (order.total_amount) r[8] = Number(order.total_amount);
-        r[13] = now;
-        updatedCount++;
-      } else {
-        const newRow = [
-          order.created_at ? new Date(order.created_at) : now,
-          sn,
-          order.tracking_no || "",
-          order.shipping_carrier || "",
-          order.buyer_name || "",
-          order.shipping_area || "",
-          order.items_detail || "• Đơn hàng " + sn,
-          Number(order.total_quantity) || 1,
-          Number(order.total_amount) || 0,
-          Number(order.fee_amount) || 0,
-          Number(order.escrow_amount) || 0,
-          String(order.order_status || "Chờ lấy hàng"),
-          String(order.return_status || "Bình thường"),
-          now
-        ];
-        orderRowMap.set(sn, currentRows.length);
-        currentRows.push(newRow);
-        createdCount++;
-      }
-    }
-
-    // 4. Sắp xếp toàn bộ đơn hàng trong RAM: Ngày tạo MỚI NHẤT lên đầu (< 1ms)
-    currentRows.sort((a, b) => {
-      const timeA = a[0] instanceof Date ? a[0].getTime() : new Date(a[0]).getTime();
-      const timeB = b[0] instanceof Date ? b[0].getTime() : new Date(b[0]).getTime();
-      if (timeB !== timeA) return (timeB || 0) - (timeA || 0);
-      return String(b[1] || "").localeCompare(String(a[1] || ""));
-    });
-
-    // 5. Đảm bảo sheet có đủ số dòng trước khi ghi (Hỗ trợ 1000+ đơn hàng)
-    const neededMaxRows = currentRows.length + 2;
-    const currentMaxRows = sheet.getMaxRows();
-    if (neededMaxRows > currentMaxRows) {
-      sheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
-    }
-
-    // Ghi dữ liệu xuống Sheet từ Dòng 3 (Single Batch Write)
-    if (currentRows.length > 0) {
-      sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
-    }
-
-    // 6. Xóa các dòng rác thừa phía sau và hoàn tất công thức Dòng 2 chỉ ở mẻ cuối cùng
-    if (isLastBatch) {
-      const prevDataRows = existingRowCount - 2;
-      if (prevDataRows > currentRows.length) {
-        sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 14).clearContent();
-      }
-      sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+      upsertOrdersToSheet(mSheet, mOrders, isLastBatch);
+      updatedMonths.push(mName);
     }
 
     const executionTimeMs = Date.now() - startTime;
-    const totalProcessed = createdCount + updatedCount;
+    const monthTag = updatedMonths.length > 0 ? ` [${updatedMonths.join(", ")}]` : "";
+
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
       message: isLastBatch
-        ? `Đã hoàn tất đồng bộ ${currentRows.length} đơn (${createdCount} mới, ${updatedCount} cập nhật) [${executionTimeMs}ms]`
-        : `Đã nạp lô ${totalProcessed} đơn [${executionTimeMs}ms]`,
-      total: currentRows.length,
-      created: createdCount,
-      updated: updatedCount,
+        ? `Đã hoàn tất đồng bộ ${masterResult.total} đơn sang DonHangShopee và các Sheet Tháng${monthTag} (${masterResult.created} mới, ${masterResult.updated} cập nhật) [${executionTimeMs}ms]`
+        : `Đã nạp lô ${ordersList.length} đơn sang DonHangShopee & các Sheet Tháng${monthTag} [${executionTimeMs}ms]`,
+      total: masterResult.total,
+      created: masterResult.created,
+      updated: masterResult.updated,
+      months: updatedMonths,
       is_last_batch: isLastBatch,
       executionTimeMs: executionTimeMs
     })).setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
     return ContentService.createTextOutput(JSON.stringify({
-      success: false,
-      error: err.toString()
+      success: false, error: err.toString()
     })).setMimeType(ContentService.MimeType.JSON);
   }
 }
 
-/**
- * BƯỚC 4: HÀM PHỤ TRỢ DỌN DẸP HÀNG TỔNG DƯ THỪA & SẮP XẾP MỚI NHẤT
- * (Có thể chọn và bấm Run trực tiếp trên thanh công cụ Apps Script)
- */
+function splitOrdersToMonthlySheets() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const masterSheet = ss.getSheetByName(SHEET_NAME);
+  if (!masterSheet) {
+    SpreadsheetApp.getUi().alert("⚠️ Không tìm thấy sheet '" + SHEET_NAME + "'!");
+    return;
+  }
+  const values = masterSheet.getDataRange().getValues();
+  if (values.length < 3) {
+    SpreadsheetApp.getUi().alert("⚠️ Chưa có đơn hàng nào trong sheet '" + SHEET_NAME + "' để phân loại!");
+    return;
+  }
+  const orders = [];
+  for (let i = 2; i < values.length; i++) {
+    const r = values[i];
+    const sn = String(r[1] || "").trim();
+    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG")) continue;
+    orders.push({
+      created_at: r[0], order_sn: sn, tracking_no: r[2], shipping_carrier: r[3],
+      buyer_name: r[4], shipping_area: r[5], items_detail: r[6], total_quantity: r[7],
+      total_amount: r[8], fee_amount: r[9], escrow_amount: r[10], order_status: r[11],
+      return_status: r[12]
+    });
+  }
+  const ordersByMonth = new Map();
+  orders.forEach(o => {
+    const m = getMonthSheetName(o.created_at);
+    if (!ordersByMonth.has(m)) ordersByMonth.set(m, []);
+    ordersByMonth.get(m).push(o);
+  });
+  for (const [mName, mOrders] of ordersByMonth.entries()) {
+    let mSheet = ss.getSheetByName(mName);
+    if (!mSheet) {
+      mSheet = ss.insertSheet(mName);
+      formatSheetTemplate(mSheet);
+    }
+    upsertOrdersToSheet(mSheet, mOrders, true);
+  }
+  const monthNames = Array.from(ordersByMonth.keys()).join(", ");
+  SpreadsheetApp.getUi().alert(`🎉 Đã phân loại thành công ${orders.length} đơn vào các sheet tháng: ${monthNames}!\n⭐ Mỗi sheet tháng đều có đủ 14 cột và hàng TỔNG CỘNG ở dòng 2.`);
+}
+
 function sortByNewestCreated() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
-
-  const dataRange = sheet.getDataRange();
-  const values = dataRange.getValues();
-  const existingRowCount = values.length;
-
-  if (existingRowCount < 3) {
-    SpreadsheetApp.getUi().alert("⚠️ Chưa có đơn hàng nào để sắp xếp!");
-    return;
-  }
-
-  // Lọc và làm sạch trong RAM
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 3) return;
   const rows = [];
-  let deletedCount = 0;
-  for (let i = 2; i < existingRowCount; i++) {
-    const row = values[i];
-    const sn = String(row[1] || "").trim();
-    const colA = String(row[0] || "").toUpperCase();
-    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG") || sn.toUpperCase().includes("TONG CONG") || colA.includes("TỔNG CỘNG")) {
-      deletedCount++;
-      continue;
-    }
-    rows.push(row);
+  for (let i = 2; i < values.length; i++) {
+    const r = values[i];
+    const sn = String(r[1] || "").trim();
+    if (sn && !sn.toUpperCase().includes("TỔNG CỘNG")) rows.push(r);
   }
-
-  // Sắp xếp trong RAM: Mới nhất lên đầu
   rows.sort((a, b) => {
-    const timeA = a[0] instanceof Date ? a[0].getTime() : new Date(a[0]).getTime();
-    const timeB = b[0] instanceof Date ? b[0].getTime() : new Date(b[0]).getTime();
-    if (timeB !== timeA) return (timeB || 0) - (timeA || 0);
+    const tA = parseOrderDate(a[0]).getTime();
+    const tB = parseOrderDate(b[0]).getTime();
+    if (tB !== tA) return tB - tA;
     return String(b[1] || "").localeCompare(String(a[1] || ""));
   });
-
-  // Đảm bảo sheet có đủ số dòng trước khi ghi
-  const neededMaxRows = rows.length + 2;
-  const currentMaxRows = sheet.getMaxRows();
-  if (neededMaxRows > currentMaxRows) {
-    sheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
-  }
-
-  // Ghi 1 lần xuống Sheet
-  if (rows.length > 0) {
-    sheet.getRange(3, 1, rows.length, 14).setValues(rows);
-  }
-
-  const prevDataRows = existingRowCount - 2;
-  if (prevDataRows > rows.length) {
-    sheet.getRange(3 + rows.length, 1, prevDataRows - rows.length, 14).clearContent();
-  }
-
+  if (rows.length > 0) sheet.getRange(3, 1, rows.length, 14).setValues(rows);
   sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
-  SpreadsheetApp.getUi().alert(`✅ Đã dọn dẹp và sắp xếp lại toàn bộ ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!\n⭐ 1 HÀNG TỔNG CỘNG GHIM CỐ ĐỊNH Ở DÒNG 2.`);
+  SpreadsheetApp.getUi().alert(`✅ Đã sắp xếp lại ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!`);
 }
 
-/**
- * BƯỚC 5: HÀM KHỞI TẠO SHEET DASHBOARD (BÁO CÁO TỔNG QUAN, THEO THÁNG & ĐƠN HÀNG)
- * (Chọn và bấm Run trên thanh công cụ Apps Script để tự động sinh ra Sheet Dashboard)
- */
 function setupDashboard() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   let db = ss.getSheetByName("Dashboard");
-  if (!db) {
-    db = ss.insertSheet("Dashboard", 0);
-  } else {
-    ss.setActiveSheet(db);
-    ss.moveActiveSheet(1);
-  }
+  if (!db) db = ss.insertSheet("Dashboard", 0);
+  else { ss.setActiveSheet(db); ss.moveActiveSheet(1); }
   db.clear();
 
-  // 1. BANNER TIÊU ĐỀ
   db.getRange("A1:M1").merge().setValue("📊 BÁO CÁO TỔNG QUAN KINH DOANH SHOPEE (LIVE DASHBOARD)")
     .setBackground("#1B2631").setFontColor("#FFFFFF").setFontWeight("bold").setFontSize(13)
     .setHorizontalAlignment("center").setVerticalAlignment("middle");
   db.setRowHeight(1, 38);
   db.setRowHeight(2, 8);
 
-  // 2. 6 THẺ KPI SCORECARDS
   const cards = [
     { range: "A3:B4", top: "A3:B3", val: "A4:B4", title: "💰 TIỀN THỰC NHẬN VỀ VÍ", form: "='DonHangShopee'!K2", bg: "#D4EFDF", c: "#145A32", fmt: "#,##0 \"₫\"" },
     { range: "C3:D4", top: "C3:D3", val: "C4:D4", title: "📈 DOANH THU KHÁCH TRẢ", form: "='DonHangShopee'!I2", bg: "#D6EAF8", c: "#1B4F72", fmt: "#,##0 \"₫\"" },
@@ -403,46 +355,30 @@ function setupDashboard() {
       .setBackground(c.bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat(c.fmt);
     db.getRange(c.range).setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
   });
-  db.setRowHeight(3, 22);
-  db.setRowHeight(4, 34);
-  db.setRowHeight(5, 12);
+  db.setRowHeight(3, 22); db.setRowHeight(4, 34); db.setRowHeight(5, 12);
 
-  // 3. CỤM TRÁI: DOANH SỐ THEO THÁNG (TỰ ĐỘNG CUỘN 6 THÁNG GẦN NHẤT)
   db.getRange("A6:G6").merge().setValue("📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO THÁNG")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-
   db.getRange("A7:G7").setValues([["Tháng/Năm", "Số đơn", "Tổng SL", "Tiền khách trả", "Phí sàn", "TIỀN THỰC NHẬN", "Tỷ lệ Payout"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
   for (let m = 0; m < 6; m++) {
     const r = 8 + m;
-    if (m === 0) {
-      db.getRange(`A${r}`).setFormula("=DATE(YEAR(TODAY()), MONTH(TODAY()), 1)");
-    } else {
-      db.getRange(`A${r}`).setFormula(`=EDATE(A${r - 1}, -1)`);
-    }
-    db.getRange(`A${r}`).setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
-
+    db.getRange(`A${r}`).setFormula(m === 0 ? "=DATE(YEAR(TODAY()), MONTH(TODAY()), 1)" : `=EDATE(A${r - 1}, -1)`)
+      .setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
     db.getRange(`B${r}`).setFormula(`=COUNTIFS('DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$B$3:$B$50000, "<>")`)
       .setHorizontalAlignment("center").setNumberFormat("#,##0");
-
     db.getRange(`C${r}`).setFormula(`=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("center").setNumberFormat("#,##0");
-
     db.getRange(`D${r}`).setFormula(`=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-
     db.getRange(`E${r}`).setFormula(`=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-
     db.getRange(`F${r}`).setFormula(`=SUMIFS('DonHangShopee'!$K$3:$K$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449");
-
-    db.getRange(`G${r}`).setFormula(`=IFERROR(F${r}/D${r}, 0)`)
-      .setHorizontalAlignment("center").setNumberFormat("0.0%");
+    db.getRange(`G${r}`).setFormula(`=IFERROR(F${r}/D${r}, 0)`).setHorizontalAlignment("center").setNumberFormat("0.0%");
   }
 
-  // Dòng 14: TỔNG CỘNG 6 THÁNG
   db.getRange("A14").setValue("⭐ TỔNG 6 THÁNG").setFontWeight("bold").setHorizontalAlignment("center").setFontColor("#C0392B");
   db.getRange("B14").setFormula("=SUM(B8:B13)").setFontWeight("bold").setHorizontalAlignment("center").setNumberFormat("#,##0");
   db.getRange("C14").setFormula("=SUM(C8:C13)").setFontWeight("bold").setHorizontalAlignment("center").setNumberFormat("#,##0");
@@ -452,48 +388,17 @@ function setupDashboard() {
   db.getRange("G14").setFormula("=IFERROR(F14/D14, 0)").setFontWeight("bold").setHorizontalAlignment("center").setNumberFormat("0.0%");
   db.getRange("A14:G14").setBackground("#EAEDED").setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
 
-  // 4. CỤM PHẢI 1: PHÂN BỔ TRẠNG THÁI ĐƠN HÀNG
   db.getRange("I6:M6").merge().setValue("📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
   db.getRange("I7:M7").setValues([["Trạng thái đơn", "Số đơn", "Tỷ lệ", "Tiền thực nhận", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
   const statuses = [
-    [
-      "🟢 Đã giao / Hoàn thành",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\")",
-      "=IFERROR(J8/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\", 'DonHangShopee'!$K$3:$K$50000)",
-      "Đã vào ví"
-    ],
-    [
-      "🟡 Chờ xử lý / Lấy hàng",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\")",
-      "=IFERROR(J9/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$K$3:$K$50000)",
-      "Đang chuẩn bị"
-    ],
-    [
-      "🔵 Đang vận chuyển",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\")",
-      "=IFERROR(J10/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\", 'DonHangShopee'!$K$3:$K$50000)",
-      "Đang giao"
-    ],
-    [
-      "🔴 Đã hủy đơn",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hủy*\")",
-      "=IFERROR(J11/$G$4, 0)",
-      "0",
-      "Đơn bị hủy"
-    ],
-    [
-      "🟣 Trả hàng / Hoàn tiền",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\")",
-      "=IFERROR(J12/$G$4, 0)",
-      "0",
-      "Khiếu nại/Hoàn"
-    ]
+    ["🟢 Đã giao / Hoàn thành", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\")", "=IFERROR(J8/$G$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\", 'DonHangShopee'!$K$3:$K$50000)", "Đã vào ví"],
+    ["🟡 Chờ xử lý / Lấy hàng", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\")", "=IFERROR(J9/$G$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$K$3:$K$50000)", "Đang chuẩn bị"],
+    ["🔵 Đang vận chuyển", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\")", "=IFERROR(J10/$G$4, 0)", "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\", 'DonHangShopee'!$K$3:$K$50000)", "Đang giao"],
+    ["🔴 Đã hủy đơn", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hủy*\")", "=IFERROR(J11/$G$4, 0)", "0", "Đơn bị hủy"],
+    ["🟣 Trả hàng / Hoàn tiền", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\")", "=IFERROR(J12/$G$4, 0)", "0", "Khiếu nại/Hoàn"]
   ];
   statuses.forEach((row, i) => {
     const r = 8 + i;
@@ -505,7 +410,6 @@ function setupDashboard() {
     db.getRange(`M${r}`).setValue(row[4]).setHorizontalAlignment("center");
   });
 
-  // 5. CỤM PHẢI 2: ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN
   db.getRange("I14:M14").merge().setValue("🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
   db.getRange("I15:M15").setValues([["ĐVVC", "Số đơn", "Tỷ lệ", "Tiền thu hộ", "Đánh giá"]])
@@ -525,13 +429,6 @@ function setupDashboard() {
     db.getRange(`M${r}`).setValue(row[4]).setHorizontalAlignment("center");
   });
 
-  // Chỉnh độ rộng cột Dashboard
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 65, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
-
-  try {
-    SpreadsheetApp.getUi().alert("✅ Đã tạo thành công Sheet Dashboard!");
-  } catch (e) {
-    console.log("Dashboard created successfully");
-  }
 }

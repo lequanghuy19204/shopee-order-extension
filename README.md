@@ -163,25 +163,28 @@ Khi truy cập trang Quản lý đơn hàng Shopee (`https://banhang.shopee.vn/p
 
 ## 📊 Cấu Trúc Dữ Liệu Google Sheet
 
-### Sheet 1: `DonHangShopee`
+### Sheet 1: `DonHangShopee` (Sheet Tổng) & Các Sheet Theo Tháng (`Tháng 7`, `Tháng 8`, `Tháng 9`...)
+
+Tất cả các sheet theo tháng đều có **cấu trúc 14 cột y hệt sheet chính** và tự động sinh ra/cập nhật dữ liệu tương ứng theo ngày tạo của đơn hàng:
 
 | Cột | Tên Cột | Mô Tả |
 |:---:|:---|:---|
-| **A** | Ngày tạo | Thời gian tạo đơn hàng (`dd/MM/yyyy HH:mm:ss`), sắp xếp mới nhất ở trên |
+| **A** | Ngày tạo | Thời gian tạo đơn hàng (`dd/MM/yyyy HH:mm`), sắp xếp mới nhất ở trên |
 | **B** | Mã đơn hàng | Mã đơn Shopee duy nhất (`order_sn`) |
-| **C** | Tên người mua | Username khách hàng |
-| **D** | Đơn vị vận chuyển | Tên nhà vận chuyển (SPX Express, GHTK, Viettel Post, ...) |
-| **E** | Mã vận đơn | Tracking number của bưu kiện |
-| **F** | Khu vực giao | Địa chỉ nhận hàng của người mua |
+| **C** | Mã vận đơn | Tracking number của bưu kiện |
+| **D** | ĐVVC | Tên nhà vận chuyển (SPX Express, GHN, Viettel Post, ...) |
+| **E** | Tên người nhận | Username/Họ tên khách hàng |
+| **F** | Khu vực nhận | Tỉnh/Thành phố hoặc địa chỉ nhận hàng |
 | **G** | Chi tiết sản phẩm | Tên sản phẩm, phân loại và số lượng chi tiết |
-| **H** | Số lượng | Tổng số lượng sản phẩm trong đơn |
-| **I** | Tổng tiền hàng (đ) | Tổng giá trị đơn hàng khách thanh toán |
-| **J** | Phí sàn (đ) | Phí sàn ước tính (10.5%) |
-| **K** | Thực nhận (đ) | Doanh thu thực nhận sau khi trừ phí |
+| **H** | Tổng SL | Tổng số lượng sản phẩm trong đơn |
+| **I** | Tiền khách trả (đ) | Tổng giá trị đơn hàng khách thanh toán |
+| **J** | Phí sàn Shopee (đ) | Phí sàn ước tính hoặc thực tế |
+| **K** | TIỀN THỰC NHẬN (đ) | Doanh thu thực nhận sau khi trừ phí (Nổi bật màu xanh lá) |
 | **L** | Trạng thái đơn | Trạng thái nguyên bản từ Shopee (Chờ lấy hàng, Đang giao, Đã giao, Đã hủy, ...) |
 | **M** | Tình trạng Hoàn/Hủy | Chi tiết ngày hẹn lấy hàng hoặc lý do hủy đơn |
+| **N** | Ngày cập nhật | Thời gian đồng bộ/cập nhật dữ liệu mới nhất |
 
-> **⭐ Hàng 2:** Hàng tổng cộng cố định (`⭐ TỔNG CỘNG`), tự động tính tổng Số lượng, Tổng tiền, Phí sàn, Thực nhận cho toàn bộ dữ liệu từ hàng 3 trở xuống.
+> **⭐ Hàng 2:** Hàng tổng cộng cố định (`⭐ TỔNG CỘNG`), tự động tính tổng Số lượng (Cột H), Tiền khách trả (Cột I), Phí sàn (Cột J), Thực nhận (Cột K) cho toàn bộ dữ liệu từ hàng 3 trở xuống bằng công thức SUM.
 
 ### Sheet 2: `Dashboard` Báo Cáo
 
@@ -189,9 +192,11 @@ Khi truy cập trang Quản lý đơn hàng Shopee (`https://banhang.shopee.vn/p
 - **Thống kê tài chính 6 tháng gần nhất:** Tự động tổng hợp theo tháng sử dụng công thức động.
 - **Phễu trạng thái đơn hàng:** Đếm chi tiết số lượng đơn theo từng trạng thái.
 - **Thị phần vận chuyển:** Tỷ trọng đơn hàng qua từng đơn vị giao nhận.
-- **Menu Tiện Ích `🛒 Shopee Manager`:**
-  - 🔄 Làm mới / Khởi tạo lại Dashboard
-  - ⚡ Sắp xếp đơn hàng mới nhất lên đầu
+- **Menu Tiện Ích `🛒 Shopee Manager` trực tiếp trên Google Sheet:**
+  - 📊 Tạo / Cập nhật Sheet Dashboard
+  - 📅 Phân loại đơn vào các Sheet Tháng (Tự động sinh các sheet `Tháng 7`, `Tháng 8`, `Tháng 9`... từ dữ liệu hiện có)
+  - 🔄 Sắp xếp đơn mới nhất
+  - 🛠️ Thiết lập lại bảng DonHangShopee
 
 ---
 
