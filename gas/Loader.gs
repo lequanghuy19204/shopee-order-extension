@@ -100,7 +100,7 @@ function setupSheet() {
 
 function setupDashboard() {
   SpreadsheetApp.getActiveSpreadsheet();
-  loadRemoteCoreCode(false);
+  loadRemoteCoreCode(true); // Luôn làm mới để lấy code phát hiện tháng động mới nhất
   return globalThis.setupDashboard();
 }
 

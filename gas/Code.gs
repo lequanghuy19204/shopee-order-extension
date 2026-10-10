@@ -410,18 +410,6 @@ function setupDashboard() {
   db.getRange(`E${totR}`).setFontColor("#1E8449");
   db.getRange(`G${totR}`).setHorizontalAlignment("center").setNumberFormat("0.0%");
 
-  const adsR = Math.max(20, totR + 2);
-  db.getRange(`A${adsR}:G${adsR}`).merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-  db.getRange(`A${adsR + 1}:C${adsR + 1}`).merge().setValue("💰 SỐ DƯ TÀI KHOẢN DVHT").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange(`A${adsR + 2}:C${adsR + 2}`).merge().setValue(0).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
-  db.getRange(`A${adsR + 1}:C${adsR + 2}`).setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
-  db.getRange(`D${adsR + 1}:F${adsR + 1}`).merge().setValue("🔥 CHI PHÍ DVHT HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange(`D${adsR + 2}:F${adsR + 2}`).merge().setValue(0).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
-  db.getRange(`D${adsR + 1}:F${adsR + 2}`).setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
-  db.getRange(`G${adsR + 1}`).setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange(`G${adsR + 2}`).setValue(new Date()).setBackground("#EAEDED").setFontColor("#333").setFontSize(9.5).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
-  db.getRange(`G${adsR + 1}:G${adsR + 2}`).setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
-
   db.getRange("I6:M6").merge().setValue("📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG")
     .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
   db.getRange("I7:M7").setValues([["Trạng thái đơn", "Số đơn", "Tỷ lệ", "Doanh thu ước tính", "Ghi chú"]])
@@ -463,6 +451,18 @@ function setupDashboard() {
   db.getRange("L16:L18").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
   db.getRange("M16:M18").setHorizontalAlignment("center");
 
+  // 📢 DỊCH VỤ HIỂN THỊ — cùng hàng với ĐVVC, ở cột I:M rows 20-22
+  db.getRange("I20:M20").merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+  db.getRange("I21:K21").merge().setValue("💰 SỐ DƯ TÀI KHOẢN DVHT").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
+  db.getRange("I22:K22").merge().setValue(0).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("I21:K22").setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
+  db.getRange("L21").setValue("🔥 CHI PHÍ DVHT HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("L22").setValue(0).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(14).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("L21:L22").setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
+  db.getRange("M21").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("M22").setValue(new Date()).setBackground("#EAEDED").setFontColor("#333").setFontSize(9.5).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
+  db.getRange("M21:M22").setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
+
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 65, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
 }
@@ -473,8 +473,11 @@ function updateDashboardAdsInfo(ss, balance, expense) {
     if (!db) return;
     const finder = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN DVHT").findNext();
     if (finder) {
-      const r = finder.getRow() + 1, ef = db.createTextFinder("🔥 CHI PHÍ DVHT HÔM NAY").findNext(), tf = db.createTextFinder("🕒 CẬP NHẬT").findNext();
-      if (balance !== undefined && balance !== null && balance !== "") db.getRange(r, 1).setValue(Number(balance));
+      const r = finder.getRow() + 1;
+      const balCol = finder.getColumn();
+      const ef = db.createTextFinder("🔥 CHI PHÍ DVHT HÔM NAY").findNext();
+      const tf = db.createTextFinder("🕒 CẬP NHẬT").findNext();
+      if (balance !== undefined && balance !== null && balance !== "") db.getRange(r, balCol).setValue(Number(balance));
       if (expense !== undefined && expense !== null && expense !== "" && ef) db.getRange(r, ef.getColumn()).setValue(Number(expense));
       if (tf) db.getRange(r, tf.getColumn()).setValue(new Date());
     }
