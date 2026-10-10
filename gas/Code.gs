@@ -26,14 +26,31 @@ function parseOrderDate(val) {
   if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
   if (!val) return new Date();
   const str = String(val).trim();
-  const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (dmyMatch) {
+
+  if (str.includes("-")) {
+    const dIso = new Date(str);
+    if (!isNaN(dIso.getTime())) return dIso;
+  }
+
+  const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slashMatch) {
     const timeMatch = str.match(/(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
     const hour = timeMatch ? parseInt(timeMatch[1], 10) : 0;
     const min = timeMatch ? parseInt(timeMatch[2], 10) : 0;
     const sec = (timeMatch && timeMatch[3]) ? parseInt(timeMatch[3], 10) : 0;
-    return new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10), hour, min, sec);
+
+    const p1 = parseInt(slashMatch[1], 10);
+    const p2 = parseInt(slashMatch[2], 10);
+    const yyyy = parseInt(slashMatch[3], 10);
+
+    let day = p1, month = p2;
+    if (p2 > 12 && p1 <= 12) {
+      month = p1;
+      day = p2;
+    }
+    return new Date(yyyy, month - 1, day, hour, min, sec);
   }
+
   const d = new Date(str);
   return isNaN(d.getTime()) ? new Date() : d;
 }
@@ -134,6 +151,7 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
     if (orderRowMap.has(sn)) {
       const idx = orderRowMap.get(sn);
       const r = currentRows[idx];
+      if (order.created_at) r[0] = parseOrderDate(order.created_at);
       if (order.order_status) r[11] = String(order.order_status);
       if (order.return_status) r[12] = String(order.return_status);
       if (order.product_amount !== undefined && order.product_amount !== "") r[8] = prodAmt;
@@ -177,6 +195,7 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
 
   if (currentRows.length > 0) {
     sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
+    sheet.getRange(3, 1, currentRows.length, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
   }
 
   if (isLastBatch) {
