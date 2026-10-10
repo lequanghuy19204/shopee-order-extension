@@ -156,23 +156,24 @@
       return_status = resolvedDesc || "Trả hàng / Chuyển hoàn";
     }
 
+    // 1. Tổng tiền Thanh toán của người mua trực tiếp từ Shopee API
     const rawPrice = card.payment_info?.total_price || 0;
     const cardBuyerPaid = Math.round(Number(rawPrice) / 100000);
     const buyer_paid_amount = (extraInfo && extraInfo.buyer_paid_amount !== null && extraInfo.buyer_paid_amount !== undefined)
       ? extraInfo.buyer_paid_amount
       : cardBuyerPaid;
 
+    // 2. Tổng tiền sản phẩm trực tiếp từ Shopee API
     const product_amount = (extraInfo && extraInfo.product_amount !== null && extraInfo.product_amount !== undefined)
       ? extraInfo.product_amount
-      : buyer_paid_amount;
+      : 0;
 
+    // 3. Doanh thu đơn hàng ước tính trực tiếp từ Shopee API
     let escrow_amount = 0;
     if (order_status === "Đã hủy") {
       escrow_amount = 0;
     } else if (extraInfo && extraInfo.escrow_amount !== null && extraInfo.escrow_amount !== undefined) {
       escrow_amount = extraInfo.escrow_amount;
-    } else {
-      escrow_amount = Math.round(product_amount * 0.895);
     }
 
     const fulfilment = card.fulfilment_info || {};

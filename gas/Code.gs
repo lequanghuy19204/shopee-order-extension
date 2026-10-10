@@ -123,17 +123,9 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
     const sn = String(order.order_sn || order.ordersn || "").trim();
     if (!sn) continue;
 
-    const prodAmt = order.product_amount !== undefined && order.product_amount !== ""
-      ? Number(order.product_amount)
-      : (Number(order.total_amount) || 0);
-
-    const escrowAmt = order.escrow_amount !== undefined && order.escrow_amount !== ""
-      ? Number(order.escrow_amount)
-      : (order.order_status === "Đã hủy" ? 0 : Math.round(prodAmt * 0.895));
-
-    const buyerPaidAmt = order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== ""
-      ? Number(order.buyer_paid_amount)
-      : (Number(order.total_amount) || prodAmt);
+    const prodAmt = (order.product_amount !== undefined && order.product_amount !== "") ? Number(order.product_amount) : 0;
+    const escrowAmt = (order.escrow_amount !== undefined && order.escrow_amount !== "") ? Number(order.escrow_amount) : 0;
+    const buyerPaidAmt = (order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== "") ? Number(order.buyer_paid_amount) : 0;
 
     if (orderRowMap.has(sn)) {
       const idx = orderRowMap.get(sn);

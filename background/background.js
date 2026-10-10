@@ -33,9 +33,7 @@ function parseCreatedAtFromSn(orderSn) {
     const yy = 2000 + parseInt(orderSn.slice(0, 2), 10);
     const mm = parseInt(orderSn.slice(2, 4), 10) - 1;
     const dd = parseInt(orderSn.slice(4, 6), 10);
-    if (!isNaN(yy) && !isNaN(mm) && !isNaN(dd)) {
-      return new Date(yy, mm, dd, 0, 0, 0).toISOString();
-    }
+    if (!isNaN(yy) && !isNaN(mm) && !isNaN(dd)) return new Date(yy, mm, dd, 0, 0, 0).toISOString();
   }
   return new Date().toISOString();
 }
@@ -47,9 +45,8 @@ function extractCardObject(item) {
     const pkg = item.package_level_order_card;
     const pkg0 = pkg.package_list?.[0] || {};
     return {
-      card_header: pkg.card_header, status_info: pkg0.status_info,
-      payment_info: pkg0.payment_info, fulfilment_info: pkg0.fulfilment_info,
-      item_info_group: pkg0.item_info_group,
+      card_header: pkg.card_header, status_info: pkg0.status_info, payment_info: pkg0.payment_info,
+      fulfilment_info: pkg0.fulfilment_info, item_info_group: pkg0.item_info_group,
       package_ext_info_list: [pkg0.package_ext_info], order_ext_info: pkg.order_ext_info
     };
   }
@@ -121,6 +118,29 @@ async function fetchOrderDetailAndIncome(orderId, spcCds) {
   }
 }
 
+async function fetchIncomeViaTab(orderIds) {
+  try {
+    const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" });
+    let targetTab = tabs[0];
+    let created = false;
+    if (!targetTab) {
+      targetTab = await chrome.tabs.create({ url: "https://banhang.shopee.vn/portal/sale/order", active: false });
+      created = true;
+      await new Promise(r => setTimeout(r, 2500));
+    }
+    if (targetTab) {
+      const res = await new Promise(r => chrome.tabs.sendMessage(targetTab.id, { action: "batch_fetch_income", orderIds }, r));
+      if (created) chrome.tabs.remove(targetTab.id).catch(() => {});
+      if (res?.success && Array.isArray(res.data)) {
+        const m = new Map();
+        res.data.forEach(it => { if (it?.order_id) m.set(String(it.order_id), it); });
+        return m;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
 function formatShopeeOrderCard(card, extraInfo) {
   if (!card) return null;
   const header = card.card_header || {};
@@ -141,26 +161,24 @@ function formatShopeeOrderCard(card, extraInfo) {
     return_status = resolvedDesc || "Trả hàng / Chuyển hoàn";
   }
 
-  // 1. Tổng tiền Thanh toán của người mua
+  // 1. Tổng tiền Thanh toán của người mua trực tiếp từ Shopee API
   const rawPrice = card.payment_info?.total_price || 0;
   const cardBuyerPaid = Math.round(Number(rawPrice) / 100000);
   const buyer_paid_amount = (extraInfo && extraInfo.buyer_paid_amount !== null && extraInfo.buyer_paid_amount !== undefined)
     ? extraInfo.buyer_paid_amount
     : cardBuyerPaid;
 
-  // 2. Tổng tiền sản phẩm
+  // 2. Tổng tiền sản phẩm trực tiếp từ Shopee API
   const product_amount = (extraInfo && extraInfo.product_amount !== null && extraInfo.product_amount !== undefined)
     ? extraInfo.product_amount
-    : buyer_paid_amount;
+    : 0;
 
-  // 3. Doanh thu đơn hàng ước tính
+  // 3. Doanh thu đơn hàng ước tính trực tiếp từ Shopee API
   let escrow_amount = 0;
   if (order_status === "Đã hủy") {
     escrow_amount = 0;
   } else if (extraInfo && extraInfo.escrow_amount !== null && extraInfo.escrow_amount !== undefined) {
     escrow_amount = extraInfo.escrow_amount;
-  } else {
-    escrow_amount = Math.round(product_amount * 0.895);
   }
 
   const fulfilment = card.fulfilment_info || {};
@@ -315,14 +333,17 @@ async function performFullSync(customWebhookUrl, options = {}) {
           });
         });
 
-        // Lấy đồng thời ngày tạo thực tế & chi tiết doanh thu theo từng nhóm 5 đơn (tránh WAF rate limit)
-        const extraMap = new Map();
+        // Ưu tiên lấy doanh thu trực tiếp từ Tab Shopee đang mở (Same-Origin) hoặc qua API
+        const oids = rawCards.map(c => c.order_ext_info?.order_id || c.order_id).filter(Boolean);
+        const tabMap = await fetchIncomeViaTab(oids);
+        const extraMap = tabMap || new Map();
+
         for (let k = 0; k < rawCards.length; k += 5) {
           const sliceCards = rawCards.slice(k, k + 5);
           await Promise.all(
             sliceCards.map(async (c) => {
               const oid = c.order_ext_info?.order_id || c.order_id;
-              if (oid) {
+              if (oid && !extraMap.has(String(oid))) {
                 const info = await fetchOrderDetailAndIncome(oid, spcCds);
                 if (info) extraMap.set(String(oid), info);
               }
@@ -425,13 +446,9 @@ async function postToGoogleSheet(payload, customWebhookUrl) {
 
 async function scheduleNextAutoSync(intervalSeconds) {
   await chrome.alarms.clear("shopeeAutoSync");
-  if (!intervalSeconds || intervalSeconds < 30) {
-    await chrome.storage.local.set({ nextSyncTimestamp: 0 });
-    return;
-  }
-  const nextTime = Date.now() + intervalSeconds * 1000;
-  await chrome.storage.local.set({ nextSyncTimestamp: nextTime });
-  chrome.alarms.create("shopeeAutoSync", { when: nextTime });
+  const next = (!intervalSeconds || intervalSeconds < 30) ? 0 : Date.now() + intervalSeconds * 1000;
+  await chrome.storage.local.set({ nextSyncTimestamp: next });
+  if (next) chrome.alarms.create("shopeeAutoSync", { when: next });
 }
 
 async function cancelAutoSync() {
@@ -470,28 +487,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
   if (request.action === "save_auto_sync_settings") {
     const { enabled, intervalStr, intervalSeconds } = request;
-    chrome.storage.local.set({ autoSyncEnabled: enabled, autoSyncInterval: intervalStr, autoSyncIntervalSeconds: intervalSeconds },
-      async () => {
-        if (enabled && intervalSeconds >= 30) await scheduleNextAutoSync(intervalSeconds);
-        else await cancelAutoSync();
-        sendResponse({ success: true });
-      }
-    );
+    chrome.storage.local.set({ autoSyncEnabled: enabled, autoSyncInterval: intervalStr, autoSyncIntervalSeconds: intervalSeconds }, async () => {
+      if (enabled && intervalSeconds >= 30) await scheduleNextAutoSync(intervalSeconds);
+      else await cancelAutoSync();
+      sendResponse({ success: true });
+    });
     return true;
   }
 
   if (request.action === "get_sync_status") {
-    getSettings().then((s) => {
-      sendResponse({
-        isSyncing: isSyncingInProgress,
-        autoSyncEnabled: s.autoSyncEnabled,
-        autoSyncInterval: s.autoSyncInterval,
-        autoSyncIntervalSeconds: s.autoSyncIntervalSeconds,
-        lastSyncTimestamp: s.lastSyncTimestamp,
-        lastSyncResult: s.lastSyncResult,
-        nextSyncTimestamp: s.nextSyncTimestamp
-      });
-    });
+    getSettings().then(s => sendResponse({ isSyncing: isSyncingInProgress, ...s }));
     return true;
   }
 
@@ -505,27 +510,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           try {
             const idxRes = await fetch(`https://banhang.shopee.vn/api/v3/order/search_order_list_index?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
               method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-              body: JSON.stringify({
-                order_list_tab: 100, entity_type: 1,
-                pagination: { from_page_number: 1, page_number: 1, page_size: 5 },
-                filter: { search_type: 1, keyword: payload.order_sn }
-              })
+              body: JSON.stringify({ order_list_tab: 100, entity_type: 1, pagination: { from_page_number: 1, page_number: 1, page_size: 5 }, filter: { search_type: 1, keyword: payload.order_sn } })
             }).then(r => r.json());
-            const found = idxRes.data?.index_list?.[0];
-            if (found?.order_id) oid = found.order_id;
+            oid = idxRes.data?.index_list?.[0]?.order_id;
           } catch (e) {}
         }
         if (oid) {
+          const tabMap = await fetchIncomeViaTab([oid]);
+          const tabInc = tabMap ? tabMap.get(String(oid)) : null;
           const detail = await fetchOrderDetailAndIncome(oid, spcCds);
-          if (detail) {
-            if (detail.create_time) payload.created_at = new Date(detail.create_time * 1000).toISOString();
-            if (detail.product_amount !== null) payload.product_amount = detail.product_amount;
-            if (detail.escrow_amount !== null) payload.escrow_amount = detail.escrow_amount;
-            if (detail.buyer_paid_amount !== null) payload.buyer_paid_amount = detail.buyer_paid_amount;
-          }
+          if (detail?.create_time) payload.created_at = new Date(detail.create_time * 1000).toISOString();
+          const p = tabInc?.product_amount ?? detail?.product_amount;
+          const e = tabInc?.escrow_amount ?? detail?.escrow_amount;
+          const b = tabInc?.buyer_paid_amount ?? detail?.buyer_paid_amount;
+          if (p !== null && p !== undefined) payload.product_amount = p;
+          if (e !== null && e !== undefined) payload.escrow_amount = e;
+          if (b !== null && b !== undefined) payload.buyer_paid_amount = b;
         }
-        const res = await postToGoogleSheet(payload, request.webhookUrl);
-        sendResponse(res);
+        sendResponse(await postToGoogleSheet(payload, request.webhookUrl));
       } catch (e) {
         sendResponse({ success: false, message: e.toString() });
       }

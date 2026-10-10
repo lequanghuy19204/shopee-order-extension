@@ -40,11 +40,48 @@
     }
   });
 
-  // Lắng nghe tiến trình đồng bộ thời gian thực
-  chrome.runtime.onMessage.addListener((msg) => {
+  // Lấy chi tiết doanh thu chuẩn xác từ Accounting API trong ngữ cảnh Same-Origin
+  async function fetchIncomeDirect(orderId) {
+    try {
+      const r = await fetch("https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components", {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
+      });
+      const j = await r.json();
+      if (j.code === 0 && j.data) {
+        const sBreakdown = j.data.seller_income_breakdown?.breakdown || [];
+        const bBreakdown = j.data.buyer_payment_breakdown?.breakdown || [];
+        const prod = sBreakdown.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
+        const escrow = sBreakdown.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
+        const buyerPaid = bBreakdown.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
+        return {
+          product_amount: prod !== undefined ? Math.round(Number(prod) / 100000) : null,
+          escrow_amount: escrow !== undefined ? Math.round(Number(escrow) / 100000) : null,
+          buyer_paid_amount: buyerPaid !== undefined ? Math.round(Number(buyerPaid) / 100000) : null
+        };
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Lắng nghe tiến trình đồng bộ thời gian thực & hỗ trợ background lấy doanh thu
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "sync_progress") {
       const widgetStatus = document.getElementById("soeWidgetStatus");
       if (widgetStatus) widgetStatus.textContent = `${msg.percent || 0}% (${msg.current || 0} đơn)`;
+    }
+    if (msg.action === "batch_fetch_income") {
+      (async () => {
+        const orderIds = msg.orderIds || [];
+        const results = await Promise.all(
+          orderIds.map(async (id) => {
+            const inc = await fetchIncomeDirect(id);
+            return { order_id: id, ...(inc || {}) };
+          })
+        );
+        sendResponse({ success: true, data: results });
+      })();
+      return true;
     }
   });
 
@@ -79,8 +116,8 @@
 
     const priceText = card.querySelector(".total-price")?.textContent?.trim() || "";
     const buyer_paid_amount = Number(priceText.replace(/[^0-9]/g, "")) || 0;
-    const product_amount = buyer_paid_amount;
-    const escrow_amount = order_status.toLowerCase().includes("hủy") ? 0 : Math.round(product_amount * 0.895);
+    const product_amount = 0;
+    const escrow_amount = 0;
 
     const orderLink = card.getAttribute("href") || card.closest("a")?.getAttribute("href") || card.querySelector('a[href*="/portal/sale/order/"]')?.getAttribute("href") || "";
     const orderIdMatch = orderLink.match(/\/portal\/sale\/order\/(\d+)/);
@@ -285,7 +322,17 @@
         e.stopPropagation();
         e.preventDefault();
         const order = parseOrderCard(card);
-        if (order) await sendSingleOrder(order);
+        if (order) {
+          if (order.order_id) {
+            const inc = await fetchIncomeDirect(order.order_id);
+            if (inc) {
+              if (inc.product_amount !== null) order.product_amount = inc.product_amount;
+              if (inc.escrow_amount !== null) order.escrow_amount = inc.escrow_amount;
+              if (inc.buyer_paid_amount !== null) order.buyer_paid_amount = inc.buyer_paid_amount;
+            }
+          }
+          await sendSingleOrder(order);
+        }
       });
 
       identifiers.appendChild(btn);
