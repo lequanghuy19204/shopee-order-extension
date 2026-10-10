@@ -78,10 +78,6 @@
       if (buyer_paid_amount === null && detailRes?.data?.total_price) {
         buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
       }
-      if (escrow_amount === null && (product_amount || buyer_paid_amount)) {
-        const base = product_amount || buyer_paid_amount || 0;
-        if (base > 0) escrow_amount = Math.round(base * 0.895);
-      }
 
       return { create_time, product_amount, escrow_amount, buyer_paid_amount };
     } catch (e) {}

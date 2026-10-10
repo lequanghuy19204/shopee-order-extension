@@ -82,19 +82,15 @@ async function fetchOrderDetailAndIncome(orderId, spcCds) {
       const prod = sB.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
       const escrow = sB.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
       const buyerPaid = bB.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
-      if (prod !== undefined) product_amount = Math.round(Number(prod) / 100000);
-      if (escrow !== undefined) escrow_amount = Math.round(Number(escrow) / 100000);
-      if (buyerPaid !== undefined) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
+      if (prod !== undefined && prod !== null) product_amount = Math.round(Number(prod) / 100000);
+      if (escrow !== undefined && escrow !== null) escrow_amount = Math.round(Number(escrow) / 100000);
+      if (buyerPaid !== undefined && buyerPaid !== null) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
     }
     if (product_amount === null && detailRes?.data?.order_items) {
       const s = detailRes.data.order_items.reduce((acc, it) => acc + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
       if (s > 0) product_amount = s;
     }
     if (buyer_paid_amount === null && detailRes?.data?.total_price) buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
-    if (escrow_amount === null && (product_amount || buyer_paid_amount)) {
-      const base = product_amount || buyer_paid_amount || 0;
-      if (base > 0) escrow_amount = Math.round(base * 0.895);
-    }
     return { create_time, product_amount, escrow_amount, buyer_paid_amount };
   } catch (e) { return null; }
 }
@@ -123,19 +119,81 @@ async function fetchIncomeViaTab(orderIds, preferredTabId) {
       await new Promise(r => setTimeout(r, 2500));
     }
     if (targetTabId) {
-      const res = await new Promise(r => {
-        chrome.tabs.sendMessage(targetTabId, { action: "batch_fetch_income", orderIds }, response => {
-          if (chrome.runtime.lastError) {
-            r(null);
-          } else {
-            r(response);
-          }
+      let data = null;
+      // 1. Ưu tiên cao nhất: Dùng chrome.scripting.executeScript chạy trực tiếp trong trang Shopee (Same-Origin)
+      try {
+        const injectionResults = await chrome.scripting.executeScript({
+          target: { tabId: targetTabId },
+          func: async (ids) => {
+            const match = document.cookie.match(/SPC_CDS=([^;]+)/);
+            const cds = match ? match[1] : "";
+            const results = [];
+            const CHUNK = 8;
+            for (let i = 0; i < ids.length; i += CHUNK) {
+              const slice = ids.slice(i, i + CHUNK);
+              const chunkRes = await Promise.all(slice.map(async (id) => {
+                try {
+                  const [detailRes, incomeRes] = await Promise.all([
+                    fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${id}`, {
+                      method: "GET", credentials: "include"
+                    }).then(r => r.json()).catch(() => null),
+                    fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+                      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+                      body: JSON.stringify({ order_id: Number(id), components: [2, 3] })
+                    }).then(r => r.json()).catch(() => null)
+                  ]);
+
+                  const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
+                  let product_amount = null, escrow_amount = null, buyer_paid_amount = null;
+                  if (incomeRes?.code === 0 && incomeRes.data) {
+                    const sB = incomeRes.data.seller_income_breakdown?.breakdown || [];
+                    const bB = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
+                    const prod = sB.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
+                    const escrow = sB.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
+                    const buyerPaid = bB.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
+                    if (prod !== undefined && prod !== null) product_amount = Math.round(Number(prod) / 100000);
+                    if (escrow !== undefined && escrow !== null) escrow_amount = Math.round(Number(escrow) / 100000);
+                    if (buyerPaid !== undefined && buyerPaid !== null) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
+                  }
+                  if (product_amount === null && detailRes?.data?.order_items) {
+                    const s = detailRes.data.order_items.reduce((acc, it) => acc + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+                    if (s > 0) product_amount = s;
+                  }
+                  if (buyer_paid_amount === null && detailRes?.data?.total_price) {
+                    buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
+                  }
+                  return { order_id: id, create_time, product_amount, escrow_amount, buyer_paid_amount };
+                } catch (e) {
+                  return { order_id: id };
+                }
+              }));
+              results.push(...chunkRes);
+              if (i + CHUNK < ids.length) await new Promise(r => setTimeout(r, 30));
+            }
+            return results;
+          },
+          args: [orderIds]
         });
-      });
+        if (injectionResults?.[0]?.result && Array.isArray(injectionResults[0].result)) {
+          data = injectionResults[0].result;
+        }
+      } catch (errExec) {}
+
+      // 2. Dự phòng: gửi message tới content.js
+      if (!data) {
+        const res = await new Promise(r => {
+          chrome.tabs.sendMessage(targetTabId, { action: "batch_fetch_income", orderIds }, response => {
+            if (chrome.runtime.lastError) r(null);
+            else r(response);
+          });
+        });
+        if (res?.success && Array.isArray(res.data)) data = res.data;
+      }
+
       if (created) chrome.tabs.remove(targetTabId).catch(() => {});
-      if (res?.success && Array.isArray(res.data)) {
+      if (Array.isArray(data)) {
         const m = new Map();
-        res.data.forEach(it => { if (it?.order_id) m.set(String(it.order_id), it); });
+        data.forEach(it => { if (it?.order_id) m.set(String(it.order_id), it); });
         return m;
       }
     }
@@ -345,9 +403,12 @@ async function performFullSync(customWebhookUrl, options = {}) {
             const oid = c.order_ext_info?.order_id || c.order_id;
             if (oid) {
               const ex = extraMap.get(String(oid));
-              if (!ex?.create_time || ex?.escrow_amount === null) {
+              if (!ex?.create_time || ex?.escrow_amount === null || ex?.escrow_amount === undefined) {
                 const info = await fetchOrderDetailAndIncome(oid, spcCds);
-                if (info) extraMap.set(String(oid), { ...(ex || {}), ...info });
+                if (info) {
+                  const mergedEscrow = (ex?.escrow_amount !== null && ex?.escrow_amount !== undefined) ? ex.escrow_amount : info.escrow_amount;
+                  extraMap.set(String(oid), { ...(ex || {}), ...info, escrow_amount: mergedEscrow });
+                }
               }
             }
           }));

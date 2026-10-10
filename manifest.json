@@ -12,7 +12,8 @@
     "storage",
     "cookies",
     "alarms",
-    "tabs"
+    "tabs",
+    "scripting"
   ],
   "host_permissions": [
     "https://banhang.shopee.vn/*",
