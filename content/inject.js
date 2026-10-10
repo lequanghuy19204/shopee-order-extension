@@ -121,6 +121,14 @@
         if (buyerPaid !== undefined) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
       }
 
+      if (product_amount === null && detailRes?.data?.order_items) {
+        const itemsSum = detailRes.data.order_items.reduce((s, it) => s + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+        if (itemsSum > 0) product_amount = itemsSum;
+      }
+      if (buyer_paid_amount === null && detailRes?.data?.total_price) {
+        buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
+      }
+
       return { create_time, product_amount, escrow_amount, buyer_paid_amount };
     } catch (e) {
       return null;
@@ -280,15 +288,19 @@
         });
 
         const extraMap = new Map();
-        await Promise.all(
-          rawCards.map(async (c) => {
-            const oid = c.order_ext_info?.order_id;
-            if (oid) {
-              const info = await fetchOrderDetailAndIncome(oid, spcCds);
-              if (info) extraMap.set(String(oid), info);
-            }
-          })
-        );
+        for (let k = 0; k < rawCards.length; k += 5) {
+          const sliceCards = rawCards.slice(k, k + 5);
+          await Promise.all(
+            sliceCards.map(async (c) => {
+              const oid = c.order_ext_info?.order_id || c.order_id;
+              if (oid) {
+                const info = await fetchOrderDetailAndIncome(oid, spcCds);
+                if (info) extraMap.set(String(oid), info);
+              }
+            })
+          );
+          if (k + 5 < rawCards.length) await new Promise(r => setTimeout(r, 40));
+        }
 
         rawCards.forEach(cardObj => {
           const oid = cardObj.order_ext_info?.order_id;

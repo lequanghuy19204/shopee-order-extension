@@ -57,36 +57,21 @@ function extractCardObject(item) {
 }
 
 function resolveStatusDescription(card) {
-  const status_info = card.status_info || {};
-  const descObj = status_info.status_description;
+  const descObj = card.status_info?.status_description;
   if (!descObj || !descObj.description_value) return "";
   let desc = String(descObj.description_value).trim();
-
   function fmtDate(ts) {
     if (!ts || isNaN(ts) || ts <= 0) return "";
     const d = new Date(Number(ts) > 1e11 ? Number(ts) : Number(ts) * 1000);
-    if (isNaN(d.getTime())) return "";
-    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+    return isNaN(d.getTime()) ? "" : `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
   }
-
-  if (Array.isArray(descObj.description_timestamp_list)) {
-    descObj.description_timestamp_list.forEach(item => {
-      if (item && item.timestamp && item.placeholder) {
-        const formatted = fmtDate(item.timestamp);
-        if (formatted) desc = desc.split(item.placeholder).join(formatted);
-      }
-    });
-  }
-  if (Array.isArray(descObj.description_placeholder_list)) {
-    descObj.description_placeholder_list.forEach(item => {
-      const tsVal = (item.timestamp && item.timestamp.timestamp_value) || item.timestamp;
-      const ph = item.placeholder || "{timestamp}";
-      if (tsVal && ph) {
-        const formatted = fmtDate(tsVal);
-        if (formatted) desc = desc.split(ph).join(formatted);
-      }
-    });
-  }
+  (descObj.description_timestamp_list || []).forEach(it => {
+    if (it?.timestamp && it.placeholder) desc = desc.split(it.placeholder).join(fmtDate(it.timestamp));
+  });
+  (descObj.description_placeholder_list || []).forEach(it => {
+    const t = it?.timestamp?.timestamp_value || it?.timestamp;
+    if (t) desc = desc.split(it.placeholder || "{timestamp}").join(fmtDate(t));
+  });
   return desc.replace(/\s*\{timestamp\}\s*/gi, " ").trim();
 }
 
@@ -120,6 +105,14 @@ async function fetchOrderDetailAndIncome(orderId, spcCds) {
       if (prod !== undefined) product_amount = Math.round(Number(prod) / 100000);
       if (escrow !== undefined) escrow_amount = Math.round(Number(escrow) / 100000);
       if (buyerPaid !== undefined) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
+    }
+
+    if (product_amount === null && detailRes?.data?.order_items) {
+      const itemsSum = detailRes.data.order_items.reduce((s, it) => s + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+      if (itemsSum > 0) product_amount = itemsSum;
+    }
+    if (buyer_paid_amount === null && detailRes?.data?.total_price) {
+      buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
     }
 
     return { create_time, product_amount, escrow_amount, buyer_paid_amount };
@@ -322,17 +315,21 @@ async function performFullSync(customWebhookUrl, options = {}) {
           });
         });
 
-        // Lấy đồng thời ngày tạo thực tế (get_one_order) & chi tiết doanh thu (accounting API)
+        // Lấy đồng thời ngày tạo thực tế & chi tiết doanh thu theo từng nhóm 5 đơn (tránh WAF rate limit)
         const extraMap = new Map();
-        await Promise.all(
-          rawCards.map(async (c) => {
-            const oid = c.order_ext_info?.order_id;
-            if (oid) {
-              const info = await fetchOrderDetailAndIncome(oid, spcCds);
-              if (info) extraMap.set(String(oid), info);
-            }
-          })
-        );
+        for (let k = 0; k < rawCards.length; k += 5) {
+          const sliceCards = rawCards.slice(k, k + 5);
+          await Promise.all(
+            sliceCards.map(async (c) => {
+              const oid = c.order_ext_info?.order_id || c.order_id;
+              if (oid) {
+                const info = await fetchOrderDetailAndIncome(oid, spcCds);
+                if (info) extraMap.set(String(oid), info);
+              }
+            })
+          );
+          if (k + 5 < rawCards.length) await new Promise(r => setTimeout(r, 40));
+        }
 
         rawCards.forEach(cardObj => {
           const oid = cardObj.order_ext_info?.order_id;
@@ -442,29 +439,23 @@ async function cancelAutoSync() {
   await chrome.storage.local.set({ nextSyncTimestamp: 0 });
 }
 
+async function checkAndInitAutoSync() {
+  const s = await getSettings();
+  if (s.autoSyncEnabled && s.autoSyncIntervalSeconds >= 30) await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
+}
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name === "shopeeAutoSync") {
-    const settings = await getSettings();
-    if (settings.autoSyncEnabled && settings.autoSyncIntervalSeconds >= 30) {
-      await performFullSync(null, { syncMode: "months", monthsCount: settings.syncMonthsCount || 1 });
-      await scheduleNextAutoSync(settings.autoSyncIntervalSeconds);
+    const s = await getSettings();
+    if (s.autoSyncEnabled && s.autoSyncIntervalSeconds >= 30) {
+      await performFullSync(null, { syncMode: "months", monthsCount: s.syncMonthsCount || 1 });
+      await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
     }
   }
 });
 
-chrome.runtime.onStartup.addListener(async () => {
-  const settings = await getSettings();
-  if (settings.autoSyncEnabled && settings.autoSyncIntervalSeconds >= 30) {
-    await scheduleNextAutoSync(settings.autoSyncIntervalSeconds);
-  }
-});
-
-chrome.runtime.onInstalled.addListener(async () => {
-  const settings = await getSettings();
-  if (settings.autoSyncEnabled && settings.autoSyncIntervalSeconds >= 30) {
-    await scheduleNextAutoSync(settings.autoSyncIntervalSeconds);
-  }
-});
+chrome.runtime.onStartup.addListener(checkAndInitAutoSync);
+chrome.runtime.onInstalled.addListener(checkAndInitAutoSync);
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === "trigger_full_sync") {
@@ -509,8 +500,23 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       try {
         const payload = request.payload;
         const spcCds = await getSpcCds();
-        if (payload.order_id) {
-          const detail = await fetchOrderDetailAndIncome(payload.order_id, spcCds);
+        let oid = payload.order_id;
+        if (!oid && payload.order_sn) {
+          try {
+            const idxRes = await fetch(`https://banhang.shopee.vn/api/v3/order/search_order_list_index?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+              body: JSON.stringify({
+                order_list_tab: 100, entity_type: 1,
+                pagination: { from_page_number: 1, page_number: 1, page_size: 5 },
+                filter: { search_type: 1, keyword: payload.order_sn }
+              })
+            }).then(r => r.json());
+            const found = idxRes.data?.index_list?.[0];
+            if (found?.order_id) oid = found.order_id;
+          } catch (e) {}
+        }
+        if (oid) {
+          const detail = await fetchOrderDetailAndIncome(oid, spcCds);
           if (detail) {
             if (detail.create_time) payload.created_at = new Date(detail.create_time * 1000).toISOString();
             if (detail.product_amount !== null) payload.product_amount = detail.product_amount;

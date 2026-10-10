@@ -82,7 +82,7 @@
     const product_amount = buyer_paid_amount;
     const escrow_amount = order_status.toLowerCase().includes("hủy") ? 0 : Math.round(product_amount * 0.895);
 
-    const orderLink = card.querySelector('a[href*="/portal/sale/order/"]')?.getAttribute("href") || "";
+    const orderLink = card.getAttribute("href") || card.closest("a")?.getAttribute("href") || card.querySelector('a[href*="/portal/sale/order/"]')?.getAttribute("href") || "";
     const orderIdMatch = orderLink.match(/\/portal\/sale\/order\/(\d+)/);
     const order_id = orderIdMatch ? orderIdMatch[1] : "";
 
