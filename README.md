@@ -177,14 +177,14 @@ Tất cả các sheet theo tháng đều có **cấu trúc 14 cột y hệt shee
 | **F** | Khu vực nhận | Tỉnh/Thành phố hoặc địa chỉ nhận hàng |
 | **G** | Chi tiết sản phẩm | Tên sản phẩm, phân loại và số lượng chi tiết |
 | **H** | Tổng SL | Tổng số lượng sản phẩm trong đơn |
-| **I** | Tiền khách trả (đ) | Tổng giá trị đơn hàng khách thanh toán |
-| **J** | Phí sàn Shopee (đ) | Phí sàn ước tính hoặc thực tế |
-| **K** | TIỀN THỰC NHẬN (đ) | Doanh thu thực nhận sau khi trừ phí (Nổi bật màu xanh lá) |
+| **I** | Tổng tiền sản phẩm (đ) | Tổng giá trị hàng bán chưa trừ giảm giá (`MERCHANDISE_SUBTOTAL`) |
+| **J** | Doanh thu đơn hàng ước tính (đ) | Tiền thực tế về ví sau khi trừ phí sàn và thuế (`ESCROW_AMOUNT`) - Nổi bật xanh lá |
+| **K** | Tổng tiền Thanh toán của người mua (đ) | Số tiền người mua thực thanh toán sau voucher (`BUYER_PAID_AMOUNT`) |
 | **L** | Trạng thái đơn | Trạng thái nguyên bản từ Shopee (Chờ lấy hàng, Đang giao, Đã giao, Đã hủy, ...) |
 | **M** | Tình trạng Hoàn/Hủy | Chi tiết ngày hẹn lấy hàng hoặc lý do hủy đơn |
 | **N** | Ngày cập nhật | Thời gian đồng bộ/cập nhật dữ liệu mới nhất |
 
-> **⭐ Hàng 2:** Hàng tổng cộng cố định (`⭐ TỔNG CỘNG`), tự động tính tổng Số lượng (Cột H), Tiền khách trả (Cột I), Phí sàn (Cột J), Thực nhận (Cột K) cho toàn bộ dữ liệu từ hàng 3 trở xuống bằng công thức SUM.
+> **⭐ Hàng 2:** Hàng tổng cộng cố định (`⭐ TỔNG CỘNG`), tự động tính tổng Số lượng (Cột H), Tổng tiền sản phẩm (Cột I), Doanh thu đơn hàng ước tính (Cột J), Tổng tiền Thanh toán của người mua (Cột K) cho toàn bộ dữ liệu từ hàng 3 trở xuống bằng công thức SUM.
 
 ### Sheet 2: `Dashboard` Báo Cáo
 

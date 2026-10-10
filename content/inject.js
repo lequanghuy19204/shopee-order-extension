@@ -95,21 +95,41 @@
     return desc.replace(/\s*\{timestamp\}\s*/gi, " ").trim();
   }
 
+  async function fetchOrderIncome(orderId, spcCds) {
+    try {
+      const r = await fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+        body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
+      });
+      const j = await r.json();
+      if (j.code === 0 && j.data) {
+        const sBreakdown = j.data.seller_income_breakdown?.breakdown || [];
+        const bBreakdown = j.data.buyer_payment_breakdown?.breakdown || [];
+        const prod = sBreakdown.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
+        const escrow = sBreakdown.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
+        const buyerPaid = bBreakdown.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
+        return {
+          product_amount: prod !== undefined ? Math.round(Number(prod) / 100000) : null,
+          escrow_amount: escrow !== undefined ? Math.round(Number(escrow) / 100000) : null,
+          buyer_paid_amount: buyerPaid !== undefined ? Math.round(Number(buyerPaid) / 100000) : null
+        };
+      }
+    } catch (e) {}
+    return null;
+  }
+
   // Chuẩn hóa 1 thẻ đơn hàng từ Shopee Card API
-  function formatShopeeOrderCard(card) {
+  function formatShopeeOrderCard(card, incomeInfo) {
     if (!card) return null;
     const header = card.card_header || {};
     const order_sn = String(header.order_sn || "").trim();
     if (!order_sn) return null;
 
+    const order_id = card.order_ext_info?.order_id || "";
     const buyer_name = header.buyer_info?.username || "";
     const status_info = card.status_info || {};
-    const statusText = status_info.status || "Chờ lấy hàng";
+    const order_status = status_info.status || "Chờ lấy hàng";
 
-    // Trạng thái đơn nguyên văn từ Shopee (Text tự do)
-    const order_status = statusText;
-
-    // Lý do hủy / hoàn nguyên văn từ Shopee (Text tự do)
     const resolvedDesc = resolveStatusDescription(card);
     let return_status = resolvedDesc || "Bình thường";
     if (order_status.toLowerCase().includes("hủy")) {
@@ -119,17 +139,30 @@
       return_status = resolvedDesc || "Trả hàng / Chuyển hoàn";
     }
 
-    // Tiền tệ Shopee tính theo đơn vị 100.000 (micro-units)
     const rawPrice = card.payment_info?.total_price || 0;
-    const total_amount = Math.round(Number(rawPrice) / 100000);
+    const cardBuyerPaid = Math.round(Number(rawPrice) / 100000);
+    const buyer_paid_amount = (incomeInfo && incomeInfo.buyer_paid_amount !== null && incomeInfo.buyer_paid_amount !== undefined)
+      ? incomeInfo.buyer_paid_amount
+      : cardBuyerPaid;
 
-    // Vận chuyển & Địa chỉ
+    const product_amount = (incomeInfo && incomeInfo.product_amount !== null && incomeInfo.product_amount !== undefined)
+      ? incomeInfo.product_amount
+      : buyer_paid_amount;
+
+    let escrow_amount = 0;
+    if (order_status === "Đã hủy") {
+      escrow_amount = 0;
+    } else if (incomeInfo && incomeInfo.escrow_amount !== null && incomeInfo.escrow_amount !== undefined) {
+      escrow_amount = incomeInfo.escrow_amount;
+    } else {
+      escrow_amount = Math.round(product_amount * 0.895);
+    }
+
     const fulfilment = card.fulfilment_info || {};
     const shipping_carrier = fulfilment.fulfilment_channel_name || fulfilment.masked_channel_name || "SPX Express";
     const tracking_no = fulfilment.tracking_number_list?.[0] || "";
     const shipping_area = card.package_ext_info_list?.[0]?.shipping_address || "";
 
-    // Chi tiết sản phẩm
     const items = [];
     let total_quantity = 0;
     const itemGroups = card.item_info_group?.item_info_list || [];
@@ -145,17 +178,6 @@
       });
     });
 
-    // Phí sàn & Tiền thực nhận
-    let fee_amount = 0;
-    let escrow_amount = 0;
-    if (order_status === "Đã hủy") {
-      fee_amount = 0;
-      escrow_amount = 0;
-    } else {
-      fee_amount = Math.round(total_amount * 0.105);
-      escrow_amount = total_amount - fee_amount;
-    }
-
     const rawCreateTime = header.create_time || header.order_create_time || card.order_ext_info?.create_time;
     let created_at = "";
     if (rawCreateTime) {
@@ -166,6 +188,7 @@
     }
 
     return {
+      order_id,
       order_sn,
       created_at,
       buyer_name,
@@ -174,9 +197,9 @@
       shipping_area,
       items_detail: items.join("\n") || `• Đơn hàng ${order_sn}`,
       total_quantity: total_quantity || 1,
-      total_amount,
-      fee_amount,
+      product_amount,
       escrow_amount,
+      buyer_paid_amount,
       order_status,
       return_status
     };
@@ -251,14 +274,33 @@
           }).then(r => r.json()).then(res => res.data?.card_list || []).catch(() => []))
         );
 
+        const rawCards = [];
         batchResults.forEach(cards => {
           cards.forEach(item => {
-            const parsed = formatShopeeOrderCard(extractCardObject(item));
-            if (parsed) {
-              allFormattedOrders.push(parsed);
-              if (cutoffTs && new Date(parsed.created_at).getTime() < cutoffTs) reachedCutoff = true;
-            }
+            const cardObj = extractCardObject(item);
+            if (cardObj) rawCards.push(cardObj);
           });
+        });
+
+        const incomeMap = new Map();
+        await Promise.all(
+          rawCards.map(async (c) => {
+            const oid = c.order_ext_info?.order_id;
+            if (oid) {
+              const inc = await fetchOrderIncome(oid, spcCds);
+              if (inc) incomeMap.set(String(oid), inc);
+            }
+          })
+        );
+
+        rawCards.forEach(cardObj => {
+          const oid = cardObj.order_ext_info?.order_id;
+          const inc = oid ? incomeMap.get(String(oid)) : null;
+          const parsed = formatShopeeOrderCard(cardObj, inc);
+          if (parsed) {
+            allFormattedOrders.push(parsed);
+            if (cutoffTs && new Date(parsed.created_at).getTime() < cutoffTs) reachedCutoff = true;
+          }
         });
 
         if (reachedCutoff) break;

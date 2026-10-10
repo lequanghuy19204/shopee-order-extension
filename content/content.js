@@ -78,7 +78,13 @@
     }
 
     const priceText = card.querySelector(".total-price")?.textContent?.trim() || "";
-    const total_amount = Number(priceText.replace(/[^0-9]/g, "")) || 0;
+    const buyer_paid_amount = Number(priceText.replace(/[^0-9]/g, "")) || 0;
+    const product_amount = buyer_paid_amount;
+    const escrow_amount = order_status.toLowerCase().includes("hủy") ? 0 : Math.round(product_amount * 0.895);
+
+    const orderLink = card.querySelector('a[href*="/portal/sale/order/"]')?.getAttribute("href") || "";
+    const orderIdMatch = orderLink.match(/\/portal\/sale\/order\/(\d+)/);
+    const order_id = orderIdMatch ? orderIdMatch[1] : "";
 
     const carrier = card.querySelector(".fulfilment-channel-name")?.textContent?.trim() ||
                     card.querySelector(".maksed-channel-name")?.textContent?.trim() || "SPX Express";
@@ -97,17 +103,8 @@
       items.push(`• ${name}${desc ? ` [${desc}]` : ""} x ${qty}`);
     });
 
-    let fee_amount = 0;
-    let escrow_amount = 0;
-    if (order_status === "Đã hủy") {
-      fee_amount = 0;
-      escrow_amount = 0;
-    } else {
-      fee_amount = Math.round(total_amount * 0.105);
-      escrow_amount = total_amount - fee_amount;
-    }
-
     return {
+      order_id,
       order_sn,
       created_at,
       buyer_name,
@@ -116,9 +113,9 @@
       shipping_area: "",
       items_detail: items.join("\n") || `• Đơn hàng ${order_sn}`,
       total_quantity: total_quantity || 1,
-      total_amount,
-      fee_amount,
+      product_amount,
       escrow_amount,
+      buyer_paid_amount,
       order_status,
       return_status
     };
