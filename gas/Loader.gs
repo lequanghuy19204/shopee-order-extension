@@ -94,7 +94,7 @@ function doGet(e) {
 // Chuyển tiếp các hàm menu trên Google Sheet kèm khai báo tĩnh quyền SpreadsheetApp
 function setupSheet() {
   SpreadsheetApp.getActiveSpreadsheet();
-  loadRemoteCoreCode(false);
+  loadRemoteCoreCode(true); // Luôn làm mới mã nguồn từ GitHub khi thiết lập lại bảng
   return globalThis.setupSheet();
 }
 

@@ -83,12 +83,16 @@ function formatSheetTemplate(sheet) {
 }
 
 function setupSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const ss = SpreadsheetApp.getActiveSpreadsheet(), del = [];
   let sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
   formatSheetTemplate(sheet);
+  ss.getSheets().forEach(s => {
+    const n = s.getName().trim();
+    if (/^Tháng\s+\d+$/i.test(n)) { try { ss.deleteSheet(s); del.push(n); } catch (e) {} }
+  });
   try {
     setupDashboard();
-    SpreadsheetApp.getUi().alert("✅ Đã thiết lập xong Google Sheet (DonHangShopee & Dashboard)!");
+    SpreadsheetApp.getUi().alert(`✅ Đã thiết lập xong DonHangShopee & Dashboard!${del.length ? " (Đã xóa: " + del.join(", ") + ")" : ""}`);
   } catch (e) {}
 }
 
@@ -100,11 +104,8 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
   const orderRowMap = new Map();
 
   for (let i = 2; i < existingRowCount; i++) {
-    const row = values[i];
-    const sn = String(row[1] || "").trim();
-    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG")) continue;
-    orderRowMap.set(sn, currentRows.length);
-    currentRows.push(row);
+    const row = values[i], sn = String(row[1] || "").trim();
+    if (sn && !sn.toUpperCase().includes("TỔNG CỘNG")) { orderRowMap.set(sn, currentRows.length); currentRows.push(row); }
   }
 
   const now = new Date();
