@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Shopee Order to Sheet - Xuất Đơn & Cập Nhật Hoàn Hủy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Xuất đầy đủ thông tin đơn hàng Shopee và cập nhật trạng thái hoàn hủy, số tiền thực nhận vào Google Sheet (Hỗ trợ Chrome & Firefox)",
   "icons": {
     "16": "icons/icon16.png",
