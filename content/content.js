@@ -40,26 +40,46 @@
     }
   });
 
-  // Lấy chi tiết doanh thu chuẩn xác từ Accounting API trong ngữ cảnh Same-Origin
+  // Lấy chi tiết ngày tạo & doanh thu chuẩn xác từ Shopee API trong ngữ cảnh Same-Origin
   async function fetchIncomeDirect(orderId) {
     try {
-      const r = await fetch("https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components", {
-        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
-      });
-      const j = await r.json();
-      if (j.code === 0 && j.data) {
-        const sBreakdown = j.data.seller_income_breakdown?.breakdown || [];
-        const bBreakdown = j.data.buyer_payment_breakdown?.breakdown || [];
+      const match = document.cookie.match(/SPC_CDS=([^;]+)/);
+      const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
+
+      const [detailRes, incomeRes] = await Promise.all([
+        fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${orderId}`, {
+          method: "GET", credentials: "include"
+        }).then(r => r.json()).catch(() => null),
+
+        fetch("https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components", {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
+        }).then(r => r.json()).catch(() => null)
+      ]);
+
+      const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
+
+      let product_amount = null, escrow_amount = null, buyer_paid_amount = null;
+      if (incomeRes?.code === 0 && incomeRes.data) {
+        const sBreakdown = incomeRes.data.seller_income_breakdown?.breakdown || [];
+        const bBreakdown = incomeRes.data.buyer_payment_breakdown?.breakdown || [];
         const prod = sBreakdown.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
         const escrow = sBreakdown.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
         const buyerPaid = bBreakdown.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
-        return {
-          product_amount: prod !== undefined ? Math.round(Number(prod) / 100000) : null,
-          escrow_amount: escrow !== undefined ? Math.round(Number(escrow) / 100000) : null,
-          buyer_paid_amount: buyerPaid !== undefined ? Math.round(Number(buyerPaid) / 100000) : null
-        };
+        if (prod !== undefined) product_amount = Math.round(Number(prod) / 100000);
+        if (escrow !== undefined) escrow_amount = Math.round(Number(escrow) / 100000);
+        if (buyerPaid !== undefined) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
       }
+
+      if (product_amount === null && detailRes?.data?.order_items) {
+        const itemsSum = detailRes.data.order_items.reduce((s, it) => s + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+        if (itemsSum > 0) product_amount = itemsSum;
+      }
+      if (buyer_paid_amount === null && detailRes?.data?.total_price) {
+        buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
+      }
+
+      return { create_time, product_amount, escrow_amount, buyer_paid_amount };
     } catch (e) {}
     return null;
   }
@@ -326,6 +346,7 @@
           if (order.order_id) {
             const inc = await fetchIncomeDirect(order.order_id);
             if (inc) {
+              if (inc.create_time) order.created_at = new Date(inc.create_time * 1000).toISOString();
               if (inc.product_amount !== null) order.product_amount = inc.product_amount;
               if (inc.escrow_amount !== null) order.escrow_amount = inc.escrow_amount;
               if (inc.buyer_paid_amount !== null) order.buyer_paid_amount = inc.buyer_paid_amount;

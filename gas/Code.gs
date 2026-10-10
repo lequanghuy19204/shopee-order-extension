@@ -26,9 +26,11 @@ function parseOrderDate(val) {
   const str = String(val).trim();
   const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (dmyMatch) {
-    const timeMatch = str.match(/(\d{1,2}):(\d{1,2})/);
-    return new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10),
-      timeMatch ? parseInt(timeMatch[1], 10) : 12, timeMatch ? parseInt(timeMatch[2], 10) : 0, 0);
+    const timeMatch = str.match(/(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
+    const hour = timeMatch ? parseInt(timeMatch[1], 10) : 0;
+    const min = timeMatch ? parseInt(timeMatch[2], 10) : 0;
+    const sec = (timeMatch && timeMatch[3]) ? parseInt(timeMatch[3], 10) : 0;
+    return new Date(parseInt(dmyMatch[3], 10), parseInt(dmyMatch[2], 10) - 1, parseInt(dmyMatch[1], 10), hour, min, sec);
   }
   const d = new Date(str);
   return isNaN(d.getTime()) ? new Date() : d;
@@ -70,7 +72,7 @@ function formatSheetTemplate(sheet) {
   sheet.getRange("K2").setFormula("=SUM(K3:K50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
 
   const maxRows = Math.max(1000, sheet.getMaxRows() - 2);
-  sheet.getRange(3, 1, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm").setHorizontalAlignment("center");
+  sheet.getRange(3, 1, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
   sheet.getRange(3, 2, maxRows, 1).setNumberFormat("@").setFontWeight("bold").setHorizontalAlignment("center");
   sheet.getRange(3, 3, maxRows, 2).setNumberFormat("@").setHorizontalAlignment("center");
   sheet.getRange(3, 5, maxRows, 2).setHorizontalAlignment("left");
@@ -80,7 +82,7 @@ function formatSheetTemplate(sheet) {
   sheet.getRange(3, 10, maxRows, 1).setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right").setFontWeight("bold").setFontColor("#1E8449");
   sheet.getRange(3, 11, maxRows, 1).setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
   sheet.getRange(3, 12, maxRows, 2).clearDataValidations().setNumberFormat("@").setHorizontalAlignment("center");
-  sheet.getRange(3, 14, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm").setHorizontalAlignment("center");
+  sheet.getRange(3, 14, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
 
   sheet.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=REGEXMATCH(L3, "(?i)đã giao|hoàn thành")').setBackground("#D4EFDF").setFontColor("#145A32").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build(),

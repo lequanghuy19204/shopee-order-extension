@@ -343,9 +343,12 @@ async function performFullSync(customWebhookUrl, options = {}) {
           await Promise.all(
             sliceCards.map(async (c) => {
               const oid = c.order_ext_info?.order_id || c.order_id;
-              if (oid && !extraMap.has(String(oid))) {
-                const info = await fetchOrderDetailAndIncome(oid, spcCds);
-                if (info) extraMap.set(String(oid), info);
+              if (oid) {
+                const ex = extraMap.get(String(oid));
+                if (!ex || !ex.create_time || ex.escrow_amount === null) {
+                  const info = await fetchOrderDetailAndIncome(oid, spcCds);
+                  if (info) extraMap.set(String(oid), { ...(ex || {}), ...info });
+                }
               }
             })
           );
