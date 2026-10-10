@@ -152,17 +152,17 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
       const idx = orderRowMap.get(sn);
       const r = currentRows[idx];
       if (order.created_at) r[0] = parseOrderDate(order.created_at);
-      if (order.order_status) r[11] = String(order.order_status);
-      if (order.return_status) r[12] = String(order.return_status);
+      if (order.tracking_no !== undefined) r[2] = String(order.tracking_no);
+      if (order.shipping_carrier !== undefined) r[3] = String(order.shipping_carrier);
+      if (order.buyer_name !== undefined) r[4] = String(order.buyer_name);
+      if (order.shipping_area !== undefined) r[5] = String(order.shipping_area);
+      if (order.items_detail !== undefined && order.items_detail !== "") r[6] = String(order.items_detail);
+      if (order.total_quantity !== undefined && order.total_quantity !== "") r[7] = Number(order.total_quantity);
       if (order.product_amount !== undefined && order.product_amount !== "") r[8] = prodAmt;
       if (order.escrow_amount !== undefined && order.escrow_amount !== "") r[9] = escrowAmt;
       if (order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== "") r[10] = buyerPaidAmt;
-      if (order.tracking_no) r[2] = String(order.tracking_no);
-      if (order.shipping_carrier) r[3] = String(order.shipping_carrier);
-      if (order.buyer_name) r[4] = String(order.buyer_name);
-      if (order.shipping_area) r[5] = String(order.shipping_area);
-      if (order.items_detail && (String(r[6]).startsWith("• Đơn hàng") || !r[6])) r[6] = order.items_detail;
-      if (order.total_quantity) r[7] = Number(order.total_quantity);
+      if (order.order_status !== undefined) r[11] = String(order.order_status);
+      if (order.return_status !== undefined) r[12] = String(order.return_status);
       r[13] = now;
       updatedCount++;
     } else {
@@ -253,24 +253,8 @@ function handleShopeePost(e) {
 
     const masterResult = upsertOrdersToSheet(sheet, ordersList, isLastBatch);
 
-    const ordersByMonth = new Map();
-    for (let i = 0; i < ordersList.length; i++) {
-      const ord = ordersList[i];
-      const mName = getMonthSheetName(ord.created_at);
-      if (!ordersByMonth.has(mName)) ordersByMonth.set(mName, []);
-      ordersByMonth.get(mName).push(ord);
-    }
-
-    const updatedMonths = [];
-    for (const [mName, mOrders] of ordersByMonth.entries()) {
-      let mSheet = ss.getSheetByName(mName);
-      if (!mSheet) {
-        mSheet = ss.insertSheet(mName);
-        formatSheetTemplate(mSheet);
-      }
-      upsertOrdersToSheet(mSheet, mOrders, isLastBatch);
-      updatedMonths.push(mName);
-    }
+    const batchMonths = new Set(ordersList.map(o => getMonthSheetName(o.created_at)));
+    const updatedMonths = syncMonthlySheetsFromMaster(ss, isLastBatch ? null : Array.from(batchMonths));
 
     const executionTimeMs = Date.now() - startTime;
     const monthTag = updatedMonths.length > 0 ? ` [${updatedMonths.join(", ")}]` : "";
@@ -278,7 +262,7 @@ function handleShopeePost(e) {
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
       message: isLastBatch
-        ? `Đã hoàn tất đồng bộ ${masterResult.total} đơn sang DonHangShopee và các Sheet Tháng${monthTag} (${masterResult.created} mới, ${masterResult.updated} cập nhật) [${executionTimeMs}ms]`
+        ? `Đã hoàn tất đồng bộ ${masterResult.total} đơn sang DonHangShopee và toàn bộ các Sheet Tháng${monthTag} (${masterResult.created} mới, ${masterResult.updated} cập nhật) [${executionTimeMs}ms]`
         : `Đã nạp lô ${ordersList.length} đơn sang DonHangShopee & các Sheet Tháng${monthTag} [${executionTimeMs}ms]`,
       total: masterResult.total,
       created: masterResult.created,
@@ -295,6 +279,58 @@ function handleShopeePost(e) {
   }
 }
 
+function syncMonthlySheetsFromMaster(ss, targetMonths) {
+  const masterSheet = ss.getSheetByName(SHEET_NAME);
+  if (!masterSheet) return [];
+  const values = masterSheet.getDataRange().getValues();
+  if (values.length < 3) return [];
+
+  const monthlyRowsMap = new Map();
+  for (let i = 2; i < values.length; i++) {
+    const row = values[i];
+    const sn = String(row[1] || "").trim();
+    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG")) continue;
+    const mName = getMonthSheetName(row[0]);
+    if (targetMonths && targetMonths.length > 0 && !targetMonths.includes(mName)) continue;
+    if (!monthlyRowsMap.has(mName)) monthlyRowsMap.set(mName, []);
+    monthlyRowsMap.get(mName).push(row.slice(0, 14));
+  }
+
+  const updatedMonths = [];
+  for (const [mName, mRows] of monthlyRowsMap.entries()) {
+    let mSheet = ss.getSheetByName(mName);
+    if (!mSheet) {
+      mSheet = ss.insertSheet(mName);
+      formatSheetTemplate(mSheet);
+    }
+
+    mRows.sort((a, b) => {
+      const tA = parseOrderDate(a[0]).getTime();
+      const tB = parseOrderDate(b[0]).getTime();
+      if (tB !== tA) return tB - tA;
+      return String(b[1] || "").localeCompare(String(a[1] || ""));
+    });
+
+    const neededRows = mRows.length + 2;
+    const curMax = mSheet.getMaxRows();
+    if (neededRows > curMax) {
+      mSheet.insertRowsAfter(curMax, neededRows - curMax);
+    }
+
+    mSheet.getRange(3, 1, mRows.length, 14).setValues(mRows);
+    mSheet.getRange(3, 1, mRows.length, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
+
+    const prevDataRows = mSheet.getLastRow() - 2;
+    if (prevDataRows > mRows.length) {
+      mSheet.getRange(3 + mRows.length, 1, prevDataRows - mRows.length, 14).clearContent();
+    }
+
+    mSheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+    updatedMonths.push(mName);
+  }
+  return updatedMonths;
+}
+
 function splitOrdersToMonthlySheets() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const masterSheet = ss.getSheetByName(SHEET_NAME);
@@ -307,34 +343,9 @@ function splitOrdersToMonthlySheets() {
     SpreadsheetApp.getUi().alert("⚠️ Chưa có đơn hàng nào trong sheet '" + SHEET_NAME + "' để phân loại!");
     return;
   }
-  const orders = [];
-  for (let i = 2; i < values.length; i++) {
-    const r = values[i];
-    const sn = String(r[1] || "").trim();
-    if (!sn || sn.toUpperCase().includes("TỔNG CỘNG")) continue;
-    orders.push({
-      created_at: r[0], order_sn: sn, tracking_no: r[2], shipping_carrier: r[3],
-      buyer_name: r[4], shipping_area: r[5], items_detail: r[6], total_quantity: r[7],
-      product_amount: r[8], escrow_amount: r[9], buyer_paid_amount: r[10],
-      order_status: r[11], return_status: r[12]
-    });
-  }
-  const ordersByMonth = new Map();
-  orders.forEach(o => {
-    const m = getMonthSheetName(o.created_at);
-    if (!ordersByMonth.has(m)) ordersByMonth.set(m, []);
-    ordersByMonth.get(m).push(o);
-  });
-  for (const [mName, mOrders] of ordersByMonth.entries()) {
-    let mSheet = ss.getSheetByName(mName);
-    if (!mSheet) {
-      mSheet = ss.insertSheet(mName);
-      formatSheetTemplate(mSheet);
-    }
-    upsertOrdersToSheet(mSheet, mOrders, true);
-  }
-  const monthNames = Array.from(ordersByMonth.keys()).join(", ");
-  SpreadsheetApp.getUi().alert(`🎉 Đã phân loại thành công ${orders.length} đơn vào các sheet tháng: ${monthNames}!\n⭐ Mỗi sheet tháng đều có đủ 14 cột và hàng TỔNG CỘNG ở dòng 2.`);
+  const updatedMonths = syncMonthlySheetsFromMaster(ss, null);
+  const monthNames = updatedMonths.join(", ");
+  SpreadsheetApp.getUi().alert(`🎉 Đã đồng bộ 100% tất cả 14 cột từ Sheet chính '${SHEET_NAME}' sang các sheet tháng: ${monthNames}!\n⭐ Toàn bộ thông tin (Ngày tạo, mã đơn, vận đơn, ĐVVC, khách hàng, chi tiết sản phẩm, 3 cột tiền, trạng thái, hoàn hủy) đã được cập nhật đồng bộ hoàn toàn.`);
 }
 
 function sortByNewestCreated() {
@@ -481,5 +492,6 @@ try {
   globalThis.setupSheet = setupSheet;
   globalThis.formatSheetTemplate = formatSheetTemplate;
   globalThis.upsertOrdersToSheet = upsertOrdersToSheet;
+  globalThis.syncMonthlySheetsFromMaster = syncMonthlySheetsFromMaster;
 } catch (e) {}
 
