@@ -193,7 +193,6 @@ function formatShopeeOrderCard(card, extraInfo) {
     order_status, return_status
   };
 }
-}
 
 function broadcastProgress(current, total, detail, title) {
   const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
