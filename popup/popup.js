@@ -183,7 +183,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       startCountdownTicker();
 
       // Khôi phục thanh tiến trình nếu đang có đồng bộ chạy ngầm
-      if (status.isSyncing && status.progress) {
+      if (status.isSyncing && status.progress && !status.progress.isDone) {
         const p = status.progress;
         if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
         if (syncProgressText) syncProgressText.textContent = p.title || "Đang đồng bộ...";
@@ -210,7 +210,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
         showSyncNotice("info", `⏳ Tiến trình đồng bộ đang chạy ngầm (${p.percent || 0}%)...`);
       } else if (!status.isSyncing) {
-        if (btnCancelSync) btnCancelSync.classList.add("hidden");
+        resetSyncButtonsUI();
+        if (syncProgressContainer) syncProgressContainer.classList.add("hidden");
       }
     });
   }
@@ -293,20 +294,39 @@ document.addEventListener("DOMContentLoaded", async () => {
       .join("");
   }
 
+  let hideProgressTimeout = null;
+
+  function resetSyncButtonsUI() {
+    if (btnSyncMonths) btnSyncMonths.disabled = false;
+    if (btnSyncAll) btnSyncAll.disabled = false;
+    if (syncMonthsSpinner) syncMonthsSpinner.classList.add("hidden");
+    if (syncAllSpinner) syncAllSpinner.classList.add("hidden");
+    if (syncMonthsBtnText) syncMonthsBtnText.textContent = "⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)";
+    if (syncAllBtnText) syncAllBtnText.textContent = "🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN (TẤT CẢ LỊCH SỬ)";
+    if (btnCancelSync) btnCancelSync.classList.add("hidden");
+  }
+
+  function hideProgressWithDelay(delayMs = 2500) {
+    if (hideProgressTimeout) clearTimeout(hideProgressTimeout);
+    hideProgressTimeout = setTimeout(() => {
+      if (syncProgressContainer) syncProgressContainer.classList.add("hidden");
+    }, delayMs);
+  }
+
   // Lắng nghe tiến trình đồng bộ thời gian thực (Live Progress)
   chrome.runtime.onMessage.addListener((msg) => {
     if (msg.action === "sync_progress") {
-      if (msg.isSyncing === false) {
-        if (btnSyncMonths) btnSyncMonths.disabled = false;
-        if (btnSyncAll) btnSyncAll.disabled = false;
-        if (syncMonthsSpinner) syncMonthsSpinner.classList.add("hidden");
-        if (syncAllSpinner) syncAllSpinner.classList.add("hidden");
-        if (syncMonthsBtnText) syncMonthsBtnText.textContent = "⚡ ĐỒNG BỘ THEO THÁNG (GIẢM TẢI)";
-        if (syncAllBtnText) syncAllBtnText.textContent = "🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN (TẤT CẢ LỊCH SỬ)";
-        if (btnCancelSync) btnCancelSync.classList.add("hidden");
+      if (msg.isDone || msg.isSyncing === false) {
+        resetSyncButtonsUI();
+        if (syncProgressText) syncProgressText.textContent = msg.title || "Đã hoàn thành!";
+        if (syncProgressPercent) syncProgressPercent.textContent = "100%";
+        if (syncProgressBar) syncProgressBar.style.width = "100%";
+        if (syncProgressDetail && msg.detail) syncProgressDetail.textContent = msg.detail;
+        hideProgressWithDelay(2500);
         return;
       }
 
+      if (hideProgressTimeout) clearTimeout(hideProgressTimeout);
       if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
       if (syncProgressText && msg.title) syncProgressText.textContent = msg.title;
       if (syncProgressPercent) syncProgressPercent.textContent = `${msg.percent || 0}%`;
@@ -354,6 +374,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (activeSpinner) activeSpinner.classList.remove("hidden");
     if (activeBtnText) activeBtnText.textContent = isMonths ? `Đang tải ${monthsCount} tháng...` : "Đang tải toàn bộ đơn...";
 
+    if (hideProgressTimeout) clearTimeout(hideProgressTimeout);
     if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
     if (syncProgressText) syncProgressText.textContent = isMonths ? `Đang tính toán ${monthsCount} tháng gần nhất...` : "Đang chuẩn bị quét đơn...";
     if (syncProgressPercent) syncProgressPercent.textContent = "0%";
@@ -369,34 +390,29 @@ document.addEventListener("DOMContentLoaded", async () => {
     showSyncNotice("info", `⏳ Đang kết nối Shopee V3 API & đồng bộ ${isMonths ? `${monthsCount} tháng gần nhất` : "toàn bộ đơn hàng"}...`);
 
     chrome.runtime.sendMessage({ action: "trigger_full_sync", webhookUrl, syncMode, monthsCount }, (response) => {
-      if (btnSyncMonths) btnSyncMonths.disabled = false;
-      if (btnSyncAll) btnSyncAll.disabled = false;
-      if (activeSpinner) activeSpinner.classList.add("hidden");
-      if (activeBtnText) activeBtnText.textContent = origText;
-      if (btnCancelSync) btnCancelSync.classList.add("hidden");
+      resetSyncButtonsUI();
 
       if (chrome.runtime.lastError) {
         showSyncNotice("error", `❌ Lỗi kết nối: ${chrome.runtime.lastError.message}`);
+        hideProgressWithDelay(1500);
         return;
       }
 
       if (response && response.cancelled) {
         showSyncNotice("info", `🛑 ${response.message || "Đã hủy đồng bộ theo yêu cầu."}`);
         syncStatusFromBackground();
-        setTimeout(() => {
-          if (syncProgressContainer) syncProgressContainer.classList.add("hidden");
-        }, 4000);
+        hideProgressWithDelay(2000);
       } else if (response && response.success) {
         if (syncProgressBar) syncProgressBar.style.width = "100%";
         if (syncProgressPercent) syncProgressPercent.textContent = "100%";
+        if (syncProgressText) syncProgressText.textContent = "Đã hoàn thành!";
         showSyncNotice("success", `🎉 ${response.message || "Đã đồng bộ đơn hàng thành công!"}`);
         chrome.storage.local.get({ recentOrders: [] }, (r) => renderHistory(r.recentOrders || []));
         syncStatusFromBackground();
-        setTimeout(() => {
-          if (syncProgressContainer) syncProgressContainer.classList.add("hidden");
-        }, 5000);
+        hideProgressWithDelay(2500);
       } else {
         showSyncNotice("error", `❌ ${response ? response.message : "Đồng bộ thất bại, hãy kiểm tra đăng nhập Shopee"}`);
+        hideProgressWithDelay(3500);
       }
     });
   }

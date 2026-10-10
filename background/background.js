@@ -294,13 +294,14 @@ function formatShopeeOrderCard(card, extraInfo) {
   };
 }
 
-function broadcastProgress(current, total, detail, title, syncMode, monthsCount) {
-  const percent = total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0;
-  currentProgressState.isSyncing = isSyncingInProgress;
+function broadcastProgress(current, total, detail, title, syncMode, monthsCount, isDone = false) {
+  const percent = isDone ? 100 : (total > 0 ? Math.min(100, Math.round((current / total) * 100)) : 0);
+  currentProgressState.isSyncing = isSyncingInProgress && !isDone;
+  currentProgressState.isDone = isDone;
   currentProgressState.current = current;
   currentProgressState.total = total;
   currentProgressState.percent = percent;
-  currentProgressState.title = title || "Đang đồng bộ...";
+  currentProgressState.title = title || (isDone ? "Đã hoàn thành" : "Đang đồng bộ...");
   currentProgressState.detail = detail || (total > 0 ? `Đã xử lý ${current}/${total} đơn (${percent}%)` : "");
   if (syncMode) currentProgressState.syncMode = syncMode;
   if (monthsCount) currentProgressState.monthsCount = monthsCount;
@@ -554,21 +555,24 @@ async function performFullSync(customWebhookUrl, options = {}) {
       recentOrders: currentStreamBatch.slice(0, 30)
     });
 
+    broadcastProgress(totalOrdersSynced, targetTotal, finalResult.message, "Đã hoàn thành", syncMode, monthsCount, true);
     return finalResult;
   } catch (err) {
     if (err.message === "SYNC_CANCELLED" || syncCancelRequested) {
       const cancelRes = { success: false, cancelled: true, totalOrders: 0, message: "Đã hủy tiến trình đồng bộ theo yêu cầu." };
       await chrome.storage.local.set({ lastSyncTimestamp: Date.now(), lastSyncResult: cancelRes });
-      broadcastProgress(0, 0, "Đã hủy đồng bộ theo yêu cầu.", "Đã hủy", syncMode, monthsCount);
+      broadcastProgress(0, 0, "Đã hủy đồng bộ theo yêu cầu.", "Đã hủy", syncMode, monthsCount, true);
       return cancelRes;
     }
     const errRes = { success: false, message: `Lỗi đồng bộ: ${err.message || err}` };
     await chrome.storage.local.set({ lastSyncTimestamp: Date.now(), lastSyncResult: errRes });
+    broadcastProgress(0, 0, errRes.message, "Thất bại", syncMode, monthsCount, true);
     return errRes;
   } finally {
     isSyncingInProgress = false;
     syncCancelRequested = false;
     currentProgressState.isSyncing = false;
+    currentProgressState.isDone = true;
   }
 }
 
