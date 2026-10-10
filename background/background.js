@@ -10,23 +10,12 @@ let isSyncingInProgress = false;
 // 1. Quản lý cấu hình & Lưu trữ
 async function getSettings() {
   return new Promise((resolve) => {
-    chrome.storage.local.get(
-      {
-        webhookUrl: "",
-        sheetUrl: "",
-        autoCapture: true,
-        showFloatingWidget: true,
-        showListButtons: true,
-        autoSyncEnabled: false,
-        autoSyncInterval: "00:00:01:00",
-        autoSyncIntervalSeconds: 60,
-        lastSyncTimestamp: 0,
-        lastSyncResult: null,
-        nextSyncTimestamp: 0,
-        recentOrders: []
-      },
-      (res) => resolve(res)
-    );
+    chrome.storage.local.get({
+      webhookUrl: "", sheetUrl: "", autoCapture: true, showFloatingWidget: true,
+      showListButtons: true, autoSyncEnabled: false, autoSyncInterval: "00:00:01:00",
+      autoSyncIntervalSeconds: 60, lastSyncTimestamp: 0, lastSyncResult: null,
+      nextSyncTimestamp: 0, recentOrders: []
+    }, (res) => resolve(res));
   });
 }
 
@@ -244,37 +233,103 @@ function formatShopeeOrderCard(card) {
   };
 }
 
-async function fetchAllShopeeOrdersDirectApi(maxCount = 200) {
+async function fetchAllShopeeOrdersDirectApi() {
   const spcCds = await getSpcCds();
   const indexUrl = `https://banhang.shopee.vn/api/v3/order/search_order_list_index?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
   const cardUrl = `https://banhang.shopee.vn/api/v3/order/get_order_list_card_list?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
 
-  const indexResponse = await fetch(indexUrl, {
+  const PAGE_SIZE = 200; // Giới hạn tối đa của 1 trang index Shopee
+  const firstIndexRes = await fetch(indexUrl, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
     body: JSON.stringify({
       order_list_tab: 100,
       entity_type: 1,
-      pagination: { from_page_number: 1, page_number: 1, page_size: maxCount },
+      pagination: { from_page_number: 1, page_number: 1, page_size: PAGE_SIZE },
       filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
       sort: { sort_type: 3, ascending: false }
     })
   });
 
-  if (!indexResponse.ok) {
-    throw new Error(`Shopee index API HTTP ${indexResponse.status}`);
+  if (!firstIndexRes.ok) {
+    throw new Error(`Shopee index API HTTP ${firstIndexRes.status}`);
   }
 
-  const indexJson = await indexResponse.json();
-  if (indexJson.code !== 0 && indexJson.message) {
-    if (indexJson.message.toLowerCase().includes("login") || indexJson.message.toLowerCase().includes("auth") || indexJson.code === 100000) {
+  const firstIndexJson = await firstIndexRes.json();
+  if (firstIndexJson.code !== 0 && firstIndexJson.message) {
+    if (firstIndexJson.message.toLowerCase().includes("login") || firstIndexJson.message.toLowerCase().includes("auth") || firstIndexJson.code === 100000) {
       throw new Error("Phiên đăng nhập Shopee đã hết hạn. Vui lòng đăng nhập lại banhang.shopee.vn");
     }
-    throw new Error(`Shopee API lỗi: ${indexJson.message}`);
+    throw new Error(`Shopee API lỗi: ${firstIndexJson.message}`);
   }
 
-  const indexList = indexJson.data?.index_list || [];
+  let rawIndexList = [...(firstIndexJson.data?.index_list || [])];
+  const reportedTotal = firstIndexJson.data?.pagination?.total || 0;
+
+  // Tự động phân trang lấy TOÀN BỘ đơn hàng (hỗ trợ shop 1000+ đơn)
+  if (reportedTotal > rawIndexList.length) {
+    const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
+    const pagePromises = [];
+    for (let p = 2; p <= totalPages; p++) {
+      pagePromises.push(
+        fetch(indexUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            order_list_tab: 100,
+            entity_type: 1,
+            pagination: { from_page_number: 1, page_number: p, page_size: PAGE_SIZE },
+            filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
+            sort: { sort_type: 3, ascending: false }
+          })
+        })
+          .then((r) => r.json())
+          .then((j) => j.data?.index_list || [])
+          .catch(() => [])
+      );
+    }
+    const otherPages = await Promise.all(pagePromises);
+    otherPages.forEach((list) => {
+      if (Array.isArray(list)) rawIndexList.push(...list);
+    });
+  } else if (!reportedTotal && rawIndexList.length === PAGE_SIZE) {
+    let p = 2;
+    while (true) {
+      try {
+        const nextRes = await fetch(indexUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            order_list_tab: 100,
+            entity_type: 1,
+            pagination: { from_page_number: 1, page_number: p, page_size: PAGE_SIZE },
+            filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 },
+            sort: { sort_type: 3, ascending: false }
+          })
+        });
+        const nextJson = await nextRes.json();
+        const nextList = nextJson.data?.index_list || [];
+        if (nextList.length === 0) break;
+        rawIndexList.push(...nextList);
+        if (nextList.length < PAGE_SIZE) break;
+        p++;
+      } catch (e) {
+        break;
+      }
+    }
+  }
+
+  // Khử trùng lặp mã đơn nếu có
+  const uniqueMap = new Map();
+  rawIndexList.forEach((item) => {
+    const key = item.order_id || `${item.package_number}_${item.order_sn}` || JSON.stringify(item);
+    if (!uniqueMap.has(key)) uniqueMap.set(key, item);
+  });
+  const indexList = Array.from(uniqueMap.values());
+
   if (indexList.length === 0) {
     return [];
   }
@@ -287,32 +342,37 @@ async function fetchAllShopeeOrdersDirectApi(maxCount = 200) {
   }
 
   const allFormattedOrders = [];
-  // Gửi song song toàn bộ các chunks cùng lúc để tối ưu tốc độ xuống 1-2s
-  const batchResults = await Promise.all(
-    chunks.map((chunk) =>
-      fetch(cardUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          order_list_tab: 100,
-          need_count_down_desc: false,
-          order_param_list: chunk
-        })
-      })
-        .then((r) => r.json())
-        .then((res) => res.data?.card_list || [])
-        .catch(() => [])
-    )
-  );
+  // Concurrency 20 chunks (100 đơn/đợt) xử lý siêu tốc và an toàn cho cả shop 1000+ đơn
+  const CONCURRENCY = 20;
 
-  batchResults.forEach((cards) => {
-    cards.forEach((item) => {
-      const cardObj = extractCardObject(item);
-      const parsed = formatShopeeOrderCard(cardObj);
-      if (parsed) allFormattedOrders.push(parsed);
+  for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    const slice = chunks.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      slice.map((chunk) =>
+        fetch(cardUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            order_list_tab: 100,
+            need_count_down_desc: false,
+            order_param_list: chunk
+          })
+        })
+          .then((r) => r.json())
+          .then((res) => res.data?.card_list || [])
+          .catch(() => [])
+      )
+    );
+
+    batchResults.forEach((cards) => {
+      cards.forEach((item) => {
+        const cardObj = extractCardObject(item);
+        const parsed = formatShopeeOrderCard(cardObj);
+        if (parsed) allFormattedOrders.push(parsed);
+      });
     });
-  });
+  }
 
   return allFormattedOrders;
 }
@@ -325,7 +385,7 @@ async function performFullSync(customWebhookUrl) {
 
   isSyncingInProgress = true;
   try {
-    const orders = await fetchAllShopeeOrdersDirectApi(200);
+    const orders = await fetchAllShopeeOrdersDirectApi();
 
     if (!orders || orders.length === 0) {
       const errRes = {

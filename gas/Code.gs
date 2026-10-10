@@ -3,7 +3,7 @@
  * Phiên bản 2.3:
  * - DÒNG 2: HÀNG TỔNG CỘNG GHIM CỐ ĐỊNH (Frozen cùng Tiêu đề Dòng 1)
  * - DÒNG 3 TRỞ ĐI: Dữ liệu đơn hàng Shopee
- * - Công thức chuẩn xác: =SUM(H3:H10000), =SUM(I3:I10000), =SUM(J3:J10000), =SUM(K3:K10000)
+ * - Công thức chuẩn xác: =SUM(H3:H50000), =SUM(I3:I50000), =SUM(J3:J50000), =SUM(K3:K50000)
  * - 100% KHÔNG BAO GIỜ BỊ #REF!
  * - Trạng thái đơn (Cột L) & Hoàn/Hủy (Cột M) là Text tự do nguyên văn từ Shopee
  */
@@ -92,11 +92,11 @@ function setupSheet() {
 
   sheet.getRange("B2").setValue("⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B"); // Chữ đỏ nổi bật
 
-  // Công thức SUM chuẩn xác có giới hạn (H3:H10000) -> 100% KHÔNG BAO GIỜ BỊ #REF!
-  sheet.getRange("H2").setFormula("=SUM(H3:H10000)").setNumberFormat("#,##0").setHorizontalAlignment("center");
-  sheet.getRange("I2").setFormula("=SUM(I3:I10000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
-  sheet.getRange("J2").setFormula("=SUM(J3:J10000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
-  sheet.getRange("K2").setFormula("=SUM(K3:K10000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right").setFontColor("#1E8449"); // Xanh lá đậm
+  // Công thức SUM chuẩn xác có giới hạn (H3:H50000) -> 100% KHÔNG BAO GIỜ BỊ #REF!
+  sheet.getRange("H2").setFormula("=SUM(H3:H50000)").setNumberFormat("#,##0").setHorizontalAlignment("center");
+  sheet.getRange("I2").setFormula("=SUM(I3:I50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
+  sheet.getRange("J2").setFormula("=SUM(J3:J50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
+  sheet.getRange("K2").setFormula("=SUM(K3:K50000)").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right").setFontColor("#1E8449"); // Xanh lá đậm
 
   // 6. Định dạng cho các dòng dữ liệu đơn hàng (Từ DÒNG 3 trở đi)
   const maxRows = 1000;
@@ -257,7 +257,14 @@ function doPost(e) {
       return String(b[1] || "").localeCompare(String(a[1] || ""));
     });
 
-    // 5. Ghi 1 lần duy nhất xuống Sheet từ Dòng 3 (Single Batch Write)
+    // 5. Đảm bảo sheet có đủ số dòng trước khi ghi (Hỗ trợ 1000+ đơn hàng)
+    const neededMaxRows = currentRows.length + 2;
+    const currentMaxRows = sheet.getMaxRows();
+    if (neededMaxRows > currentMaxRows) {
+      sheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
+    }
+
+    // Ghi 1 lần duy nhất xuống Sheet từ Dòng 3 (Single Batch Write)
     if (currentRows.length > 0) {
       sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
     }
@@ -269,7 +276,7 @@ function doPost(e) {
     }
 
     // 7. Gộp cập nhật công thức Dòng 2 thành 1 lệnh duy nhất (Single Batch Formula Write)
-    sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H10000)", "=SUM(I3:I10000)", "=SUM(J3:J10000)", "=SUM(K3:K10000)"]]);
+    sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
 
     const executionTimeMs = Date.now() - startTime;
     const totalProcessed = createdCount + updatedCount;
@@ -329,6 +336,13 @@ function sortByNewestCreated() {
     return String(b[1] || "").localeCompare(String(a[1] || ""));
   });
 
+  // Đảm bảo sheet có đủ số dòng trước khi ghi
+  const neededMaxRows = rows.length + 2;
+  const currentMaxRows = sheet.getMaxRows();
+  if (neededMaxRows > currentMaxRows) {
+    sheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
+  }
+
   // Ghi 1 lần xuống Sheet
   if (rows.length > 0) {
     sheet.getRange(3, 1, rows.length, 14).setValues(rows);
@@ -339,7 +353,7 @@ function sortByNewestCreated() {
     sheet.getRange(3 + rows.length, 1, prevDataRows - rows.length, 14).clearContent();
   }
 
-  sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H10000)", "=SUM(I3:I10000)", "=SUM(J3:J10000)", "=SUM(K3:K10000)"]]);
+  sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
   SpreadsheetApp.getUi().alert(`✅ Đã dọn dẹp và sắp xếp lại toàn bộ ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!\n⭐ 1 HÀNG TỔNG CỘNG GHIM CỐ ĐỊNH Ở DÒNG 2.`);
 }
 
@@ -370,9 +384,9 @@ function setupDashboard() {
     { range: "A3:B4", top: "A3:B3", val: "A4:B4", title: "💰 TIỀN THỰC NHẬN VỀ VÍ", form: "='DonHangShopee'!K2", bg: "#D4EFDF", c: "#145A32", fmt: "#,##0 \"₫\"" },
     { range: "C3:D4", top: "C3:D3", val: "C4:D4", title: "📈 DOANH THU KHÁCH TRẢ", form: "='DonHangShopee'!I2", bg: "#D6EAF8", c: "#1B4F72", fmt: "#,##0 \"₫\"" },
     { range: "E3:F4", top: "E3:F3", val: "E4:F4", title: "💸 PHÍ SÀN SHOPEE", form: "='DonHangShopee'!J2", bg: "#FADBD8", c: "#78281F", fmt: "#,##0 \"₫\"" },
-    { range: "G3:H4", top: "G3:H3", val: "G4:H4", title: "📦 TỔNG ĐƠN HÀNG", form: "=COUNTA('DonHangShopee'!B3:B10000)", bg: "#E8DAEF", c: "#512E5F", fmt: "#,##0" },
+    { range: "G3:H4", top: "G3:H3", val: "G4:H4", title: "📦 TỔNG ĐƠN HÀNG", form: "=COUNTA('DonHangShopee'!B3:B50000)", bg: "#E8DAEF", c: "#512E5F", fmt: "#,##0" },
     { range: "I3:J4", top: "I3:J3", val: "I4:J4", title: "👕 SẢN PHẨM ĐÃ BÁN", form: "='DonHangShopee'!H2", bg: "#FCF3CF", c: "#7D6608", fmt: "#,##0" },
-    { range: "K3:M4", top: "K3:M3", val: "K4:M4", title: "🚨 TỶ LỆ HỦY ĐƠN", form: "=IFERROR(COUNTIF('DonHangShopee'!L3:L10000,\"*hủy*\")/COUNTA('DonHangShopee'!B3:B10000),0)", bg: "#F2F4F4", c: "#B03A2E", fmt: "0.0%" }
+    { range: "K3:M4", top: "K3:M3", val: "K4:M4", title: "🚨 TỶ LỆ HỦY ĐƠN", form: "=IFERROR(COUNTIF('DonHangShopee'!L3:L50000,\"*hủy*\")/COUNTA('DonHangShopee'!B3:B50000),0)", bg: "#F2F4F4", c: "#B03A2E", fmt: "0.0%" }
   ];
 
   cards.forEach(c => {
@@ -402,19 +416,19 @@ function setupDashboard() {
     }
     db.getRange(`A${r}`).setNumberFormat("MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
 
-    db.getRange(`B${r}`).setFormula(`=COUNTIFS('DonHangShopee'!$A$3:$A$10000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$10000, "<"&EDATE(A${r},1), 'DonHangShopee'!$B$3:$B$10000, "<>")`)
+    db.getRange(`B${r}`).setFormula(`=COUNTIFS('DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$B$3:$B$50000, "<>")`)
       .setHorizontalAlignment("center").setNumberFormat("#,##0");
 
-    db.getRange(`C${r}`).setFormula(`=SUMIFS('DonHangShopee'!$H$3:$H$10000, 'DonHangShopee'!$A$3:$A$10000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$10000, "<"&EDATE(A${r},1))`)
+    db.getRange(`C${r}`).setFormula(`=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("center").setNumberFormat("#,##0");
 
-    db.getRange(`D${r}`).setFormula(`=SUMIFS('DonHangShopee'!$I$3:$I$10000, 'DonHangShopee'!$A$3:$A$10000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$10000, "<"&EDATE(A${r},1))`)
+    db.getRange(`D${r}`).setFormula(`=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
 
-    db.getRange(`E${r}`).setFormula(`=SUMIFS('DonHangShopee'!$J$3:$J$10000, 'DonHangShopee'!$A$3:$A$10000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$10000, "<"&EDATE(A${r},1))`)
+    db.getRange(`E${r}`).setFormula(`=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
 
-    db.getRange(`F${r}`).setFormula(`=SUMIFS('DonHangShopee'!$K$3:$K$10000, 'DonHangShopee'!$A$3:$A$10000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$10000, "<"&EDATE(A${r},1))`)
+    db.getRange(`F${r}`).setFormula(`=SUMIFS('DonHangShopee'!$K$3:$K$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1))`)
       .setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449");
 
     db.getRange(`G${r}`).setFormula(`=IFERROR(F${r}/D${r}, 0)`)
@@ -440,35 +454,35 @@ function setupDashboard() {
   const statuses = [
     [
       "🟢 Đã giao / Hoàn thành",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$10000, \"Đã giao\") + COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*hoàn thành*\")",
+      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\")",
       "=IFERROR(J8/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$10000, \"*nhận được hàng*\", 'DonHangShopee'!$K$3:$K$10000) + SUMIF('DonHangShopee'!$L$3:$L$10000, \"Đã giao\", 'DonHangShopee'!$K$3:$K$10000) + SUMIF('DonHangShopee'!$L$3:$L$10000, \"*hoàn thành*\", 'DonHangShopee'!$K$3:$K$10000)",
+      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\", 'DonHangShopee'!$K$3:$K$50000)",
       "Đã vào ví"
     ],
     [
       "🟡 Chờ xử lý / Lấy hàng",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$10000, \"Chờ\")",
+      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\")",
       "=IFERROR(J9/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$10000, \"*chờ lấy*\", 'DonHangShopee'!$K$3:$K$10000) + SUMIF('DonHangShopee'!$L$3:$L$10000, \"Chờ\", 'DonHangShopee'!$K$3:$K$10000)",
+      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$K$3:$K$50000)",
       "Đang chuẩn bị"
     ],
     [
       "🔵 Đang vận chuyển",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*giao cho đvvc*\") + COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*vận chuyển*\") + COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*đang giao*\")",
+      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\")",
       "=IFERROR(J10/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$10000, \"*giao cho đvvc*\", 'DonHangShopee'!$K$3:$K$10000) + SUMIF('DonHangShopee'!$L$3:$L$10000, \"*vận chuyển*\", 'DonHangShopee'!$K$3:$K$10000) + SUMIF('DonHangShopee'!$L$3:$L$10000, \"*đang giao*\", 'DonHangShopee'!$K$3:$K$10000)",
+      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*giao cho đvvc*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*vận chuyển*\", 'DonHangShopee'!$K$3:$K$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*đang giao*\", 'DonHangShopee'!$K$3:$K$50000)",
       "Đang giao"
     ],
     [
       "🔴 Đã hủy đơn",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*hủy*\")",
+      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hủy*\")",
       "=IFERROR(J11/$G$4, 0)",
       "0",
       "Đơn bị hủy"
     ],
     [
       "🟣 Trả hàng / Hoàn tiền",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$10000, \"*hoàn*\")",
+      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\")",
       "=IFERROR(J12/$G$4, 0)",
       "0",
       "Khiếu nại/Hoàn"
@@ -491,8 +505,8 @@ function setupDashboard() {
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
 
   const carriers = [
-    ["SPX Express", "=COUNTIF('DonHangShopee'!D3:D10000, \"*SPX*\")", "=IFERROR(J16/$G$4, 0)", "=SUMIF('DonHangShopee'!D3:D10000, \"*SPX*\", 'DonHangShopee'!I3:I10000)", "Chính"],
-    ["Giao Hàng Nhanh", "=COUNTIF('DonHangShopee'!D3:D10000, \"*Giao Hàng Nhanh*\") + COUNTIF('DonHangShopee'!D3:D10000, \"*GHN*\")", "=IFERROR(J17/$G$4, 0)", "=SUMIFS('DonHangShopee'!I3:I10000, 'DonHangShopee'!D3:D10000, \"*Giao Hàng Nhanh*\") + SUMIFS('DonHangShopee'!I3:I10000, 'DonHangShopee'!D3:D10000, \"*GHN*\")", "Phụ"],
+    ["SPX Express", "=COUNTIF('DonHangShopee'!D3:D50000, \"*SPX*\")", "=IFERROR(J16/$G$4, 0)", "=SUMIF('DonHangShopee'!D3:D50000, \"*SPX*\", 'DonHangShopee'!I3:I50000)", "Chính"],
+    ["Giao Hàng Nhanh", "=COUNTIF('DonHangShopee'!D3:D50000, \"*Giao Hàng Nhanh*\") + COUNTIF('DonHangShopee'!D3:D50000, \"*GHN*\")", "=IFERROR(J17/$G$4, 0)", "=SUMIFS('DonHangShopee'!I3:I50000, 'DonHangShopee'!D3:D50000, \"*Giao Hàng Nhanh*\") + SUMIFS('DonHangShopee'!I3:I50000, 'DonHangShopee'!D3:D50000, \"*GHN*\")", "Phụ"],
     ["Đơn vị khác", "=MAX(0, $G$4 - J16 - J17)", "=IFERROR(J18/$G$4, 0)", "=MAX(0, 'DonHangShopee'!I2 - L16 - L17)", "Khác"]
   ];
   carriers.forEach((row, i) => {
