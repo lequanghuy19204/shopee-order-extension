@@ -157,10 +157,14 @@ function doPost(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     let sheet = ss.getSheetByName(SHEET_NAME) || ss.getSheets()[0];
 
-    // Tự động khởi tạo hoặc làm mới Sheet Dashboard nếu chưa có hoặc đang trống
-    const dbSheet = ss.getSheetByName("Dashboard");
-    if (!dbSheet || dbSheet.getLastRow() < 2) {
-      try { setupDashboard(); } catch (errDb) {}
+    const isLastBatch = data.is_last_batch !== false;
+
+    // Tự động khởi tạo hoặc làm mới Sheet Dashboard chỉ ở mẻ cuối (tiết kiệm thời gian mẻ trung gian)
+    if (isLastBatch) {
+      const dbSheet = ss.getSheetByName("Dashboard");
+      if (!dbSheet || dbSheet.getLastRow() < 2) {
+        try { setupDashboard(); } catch (errDb) {}
+      }
     }
 
     let ordersList = [];
@@ -264,28 +268,31 @@ function doPost(e) {
       sheet.insertRowsAfter(currentMaxRows, neededMaxRows - currentMaxRows);
     }
 
-    // Ghi 1 lần duy nhất xuống Sheet từ Dòng 3 (Single Batch Write)
+    // Ghi dữ liệu xuống Sheet từ Dòng 3 (Single Batch Write)
     if (currentRows.length > 0) {
       sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
     }
 
-    // 6. Xóa các dòng rác thừa phía sau nếu có
-    const prevDataRows = existingRowCount - 2;
-    if (prevDataRows > currentRows.length) {
-      sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 14).clearContent();
+    // 6. Xóa các dòng rác thừa phía sau và hoàn tất công thức Dòng 2 chỉ ở mẻ cuối cùng
+    if (isLastBatch) {
+      const prevDataRows = existingRowCount - 2;
+      if (prevDataRows > currentRows.length) {
+        sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 14).clearContent();
+      }
+      sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
     }
-
-    // 7. Gộp cập nhật công thức Dòng 2 thành 1 lệnh duy nhất (Single Batch Formula Write)
-    sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
 
     const executionTimeMs = Date.now() - startTime;
     const totalProcessed = createdCount + updatedCount;
     return ContentService.createTextOutput(JSON.stringify({
       success: true,
-      message: `Đã đồng bộ ${totalProcessed} đơn (${createdCount} đơn mới, ${updatedCount} đơn cập nhật) [${executionTimeMs}ms]`,
-      total: totalProcessed,
+      message: isLastBatch
+        ? `Đã hoàn tất đồng bộ ${currentRows.length} đơn (${createdCount} mới, ${updatedCount} cập nhật) [${executionTimeMs}ms]`
+        : `Đã nạp lô ${totalProcessed} đơn [${executionTimeMs}ms]`,
+      total: currentRows.length,
       created: createdCount,
       updated: updatedCount,
+      is_last_batch: isLastBatch,
       executionTimeMs: executionTimeMs
     })).setMimeType(ContentService.MimeType.JSON);
 

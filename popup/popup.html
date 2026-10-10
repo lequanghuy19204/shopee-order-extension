@@ -66,6 +66,18 @@
           <span id="syncAllBtnText">🚀 ĐỒNG BỘ TOÀN BỘ ĐƠN (TẤT CẢ LỊCH SỬ)</span>
         </button>
 
+        <!-- Live Progress Container (Hỗ trợ 10.000+ đơn) -->
+        <div id="syncProgressContainer" class="sync-progress-wrap hidden">
+          <div class="sync-progress-header">
+            <span id="syncProgressText" class="sync-progress-text">Đang đồng bộ...</span>
+            <span id="syncProgressPercent" class="sync-progress-percent">0%</span>
+          </div>
+          <div class="sync-progress-bar-bg">
+            <div id="syncProgressBar" class="sync-progress-bar-fill" style="width: 0%;"></div>
+          </div>
+          <div id="syncProgressDetail" class="sync-progress-detail">Đã xử lý 0 / 0 đơn</div>
+        </div>
+
         <div id="syncStatusNotice" class="sync-notice hidden"></div>
       </section>
 

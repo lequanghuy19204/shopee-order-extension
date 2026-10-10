@@ -27,6 +27,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   const syncAllBtnText = document.getElementById("syncAllBtnText");
   const syncStatusNotice = document.getElementById("syncStatusNotice");
 
+  // Elements cho Live Progress Bar
+  const syncProgressContainer = document.getElementById("syncProgressContainer");
+  const syncProgressText = document.getElementById("syncProgressText");
+  const syncProgressPercent = document.getElementById("syncProgressPercent");
+  const syncProgressBar = document.getElementById("syncProgressBar");
+  const syncProgressDetail = document.getElementById("syncProgressDetail");
+
   // Elements cho Lịch Trình Tự Động (Auto Sync)
   const toggleAutoSync = document.getElementById("toggleAutoSync");
   const timerIntervalInput = document.getElementById("timerIntervalInput");
@@ -251,7 +258,18 @@ document.addEventListener("DOMContentLoaded", async () => {
       .join("");
   }
 
-  // 3. NÚT ĐỒNG BỘ: HỖ TRỢ ĐỒNG BỘ THEO THÁNG & TOÀN BỘ ĐƠN
+  // Lắng nghe tiến trình đồng bộ thời gian thực (Live Progress)
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "sync_progress") {
+      if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
+      if (syncProgressText && msg.title) syncProgressText.textContent = msg.title;
+      if (syncProgressPercent) syncProgressPercent.textContent = `${msg.percent || 0}%`;
+      if (syncProgressBar) syncProgressBar.style.width = `${msg.percent || 0}%`;
+      if (syncProgressDetail) syncProgressDetail.textContent = msg.detail || `Đã xử lý ${msg.current || 0}/${msg.total || 0} đơn`;
+    }
+  });
+
+  // 3. NÚT ĐỒNG BỘ: HỖ TRỢ ĐỒNG BỘ THEO THÁNG & TOÀN BỘ ĐƠN (STREAMING BATCH)
   function triggerSync(syncMode) {
     const webhookUrl = webhookInput.value.trim();
     if (!webhookUrl || !webhookUrl.startsWith("https://script.google.com/macros/s/")) {
@@ -270,6 +288,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (activeSpinner) activeSpinner.classList.remove("hidden");
     if (activeBtnText) activeBtnText.textContent = isMonths ? `Đang tải ${monthsCount} tháng...` : "Đang tải toàn bộ đơn...";
 
+    if (syncProgressContainer) syncProgressContainer.classList.remove("hidden");
+    if (syncProgressText) syncProgressText.textContent = isMonths ? `Đang đồng bộ ${monthsCount} tháng gần nhất...` : "Đang đồng bộ toàn bộ đơn...";
+    if (syncProgressPercent) syncProgressPercent.textContent = "0%";
+    if (syncProgressBar) syncProgressBar.style.width = "0%";
+    if (syncProgressDetail) syncProgressDetail.textContent = "Đang kết nối Shopee API...";
+
     showSyncNotice("info", `⏳ Đang kết nối Shopee V3 API & đồng bộ ${isMonths ? `${monthsCount} tháng gần nhất` : "toàn bộ đơn hàng"}...`);
 
     chrome.runtime.sendMessage({ action: "trigger_full_sync", webhookUrl, syncMode, monthsCount }, (response) => {
@@ -284,9 +308,14 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
 
       if (response && response.success) {
+        if (syncProgressBar) syncProgressBar.style.width = "100%";
+        if (syncProgressPercent) syncProgressPercent.textContent = "100%";
         showSyncNotice("success", `🎉 ${response.message || "Đã đồng bộ đơn hàng thành công!"}`);
         chrome.storage.local.get({ recentOrders: [] }, (r) => renderHistory(r.recentOrders || []));
         syncStatusFromBackground();
+        setTimeout(() => {
+          if (syncProgressContainer) syncProgressContainer.classList.add("hidden");
+        }, 5000);
       } else {
         showSyncNotice("error", `❌ ${response ? response.message : "Đồng bộ thất bại, hãy kiểm tra đăng nhập Shopee"}`);
       }

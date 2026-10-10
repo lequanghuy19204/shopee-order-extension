@@ -40,6 +40,14 @@
     }
   });
 
+  // Lắng nghe tiến trình đồng bộ thời gian thực
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.action === "sync_progress") {
+      const widgetStatus = document.getElementById("soeWidgetStatus");
+      if (widgetStatus) widgetStatus.textContent = `${msg.percent || 0}% (${msg.current || 0} đơn)`;
+    }
+  });
+
   // 2. Parser từ thẻ .order-card cho trường hợp xuất lẻ từng đơn
   function parseOrderCard(card) {
     const snText = card.querySelector(".order-sn")?.textContent?.trim() || "";

@@ -221,6 +221,54 @@ body {
 
 .btn-sync-hero:disabled { opacity: 0.65; cursor: not-allowed; transform: none; }
 
+/* Live Sync Progress Bar */
+.sync-progress-wrap {
+  margin-top: 10px;
+  background: #f8fafc;
+  border: 1px solid #d6eaf8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #2c3e50;
+}
+
+.sync-progress-percent {
+  color: #ee4d2d;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sync-progress-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: #e2e8f0;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sync-progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db, #2ecc71);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.sync-progress-detail {
+  font-size: 10.5px;
+  color: #7f8c8d;
+  text-align: right;
+}
+
 .sync-notice {
   margin-top: 8px;
   padding: 8px 10px;
