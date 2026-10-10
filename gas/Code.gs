@@ -211,6 +211,16 @@ function handleShopeePost(e) {
     if (data.orders && Array.isArray(data.orders)) ordersList = data.orders;
     else if (data.order_sn) ordersList = [data];
 
+    if (data.action === "setup_dashboard" || data.refresh_dashboard) {
+      try { setupDashboard(); } catch (e) {}
+      if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
+        updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
+      }
+      return ContentService.createTextOutput(JSON.stringify({
+        success: true, message: "Đã cập nhật lại toàn bộ Dashboard thành công!"
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+
     if (ordersList.length === 0) {
       if (data.ads_balance !== undefined || data.ads_expense_today !== undefined || data.ads_expense_month !== undefined) {
         updateDashboardAdsInfo(ss, data.ads_balance, data.ads_expense_today, data.ads_expense_month);
@@ -532,13 +542,13 @@ function updateDashboardAdsInfo(ss, balance, expenseToday, expenseMonth) {
   try {
     let db = ss.getSheetByName("Dashboard");
     if (!db) return;
-    const finder = db.createTextFinder("💰 SỐ DƯ TÀI KHOẢN").findNext();
+    const finder = db.createTextFinder("SỐ DƯ TÀI KHOẢN").matchEntireCell(false).findNext();
     if (finder) {
       const r = finder.getRow() + 1;
       const balCol = finder.getColumn();
-      const efToday = db.createTextFinder("🔥 CHI PHÍ HÔM NAY").findNext();
-      const efMonth = db.createTextFinder("📅 CHI PHÍ THEO THÁNG").findNext();
-      const tf = db.createTextFinder("🕒 CẬP NHẬT").findNext();
+      const efToday = db.createTextFinder("CHI PHÍ HÔM NAY").matchEntireCell(false).findNext() || db.createTextFinder("CHI PHÍ DVHT HÔM NAY").matchEntireCell(false).findNext();
+      const efMonth = db.createTextFinder("CHI PHÍ THEO THÁNG").matchEntireCell(false).findNext();
+      const tf = db.createTextFinder("CẬP NHẬT").matchEntireCell(false).findNext();
       if (balance !== undefined && balance !== null && balance !== "") db.getRange(r, balCol).setValue(Number(balance));
       if (expenseToday !== undefined && expenseToday !== null && expenseToday !== "" && efToday) db.getRange(r, efToday.getColumn()).setValue(Number(expenseToday));
       if (expenseMonth !== undefined && expenseMonth !== null && expenseMonth !== "" && efMonth) db.getRange(r, efMonth.getColumn()).setValue(Number(expenseMonth));

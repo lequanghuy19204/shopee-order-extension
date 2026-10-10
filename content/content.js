@@ -95,9 +95,15 @@
     try {
       const match = document.cookie.match(/SPC_CDS=([^;]+)/);
       const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
-      const res = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-        method: "GET", credentials: "include"
+      let res = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include"
       }).then(r => r.json()).catch(() => null);
+
+      if (!res || res.code !== 0) {
+        res = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+          method: "GET", credentials: "include"
+        }).then(r => r.json()).catch(() => null);
+      }
 
       if (res?.code === 0 && res.data) {
         const bal = res.data.ads_credit?.available ?? res.data.ads_credit?.total ?? null;

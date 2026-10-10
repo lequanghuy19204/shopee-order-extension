@@ -234,9 +234,14 @@ async function fetchAdsDataViaTab(targetTabId, startTimeSec, endTimeSec) {
           const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
           let ads_balance = null, ads_expense_today = null, ads_expense_month = null, ads_month_roas = null, ads_month_gmv = null;
 
-          const wRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-            method: "GET", credentials: "include"
+          let wRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include"
           }).then(r => r.json()).catch(() => null);
+          if (!wRes || wRes.code !== 0) {
+            wRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+              method: "GET", credentials: "include"
+            }).then(r => r.json()).catch(() => null);
+          }
 
           if (wRes?.code === 0 && wRes.data) {
             const b = wRes.data.ads_credit?.available ?? wRes.data.ads_credit?.total;
@@ -295,10 +300,16 @@ async function fetchAdsPerformanceInfo(spcCds, startTimeSec, endTimeSec, targetT
   try {
     const cds = spcCds || (await getSpcCds());
 
-    // 1. Lấy số dư ví & chi phí hôm nay từ wallet/get
-    const walletRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-      method: "GET", credentials: "include"
+    // 1. Lấy số dư ví & chi phí hôm nay từ wallet/get (hỗ trợ cả POST và GET)
+    let walletRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include"
     }).then(r => r.json()).catch(() => null);
+
+    if (!walletRes || walletRes.code !== 0) {
+      walletRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+        method: "GET", credentials: "include"
+      }).then(r => r.json()).catch(() => null);
+    }
 
     if (walletRes?.code === 0 && walletRes.data) {
       const b = walletRes.data.ads_credit?.available ?? walletRes.data.ads_credit?.total;
@@ -335,7 +346,7 @@ async function fetchAdsPerformanceInfo(spcCds, startTimeSec, endTimeSec, targetT
   } catch (e) {}
 
   // 3. Fallback: Nếu fetch trong Service Worker thiếu dữ liệu, gọi executeScript trong ngữ cảnh Tab Shopee
-  if (result.ads_balance === null || result.ads_expense_month === null) {
+  if (result.ads_balance === null || result.ads_expense_today === null || result.ads_expense_month === null) {
     let tabId = targetTabId;
     if (!tabId) {
       const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" }).catch(() => []);
@@ -694,7 +705,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
       adsStartTimeSec = Math.floor(sDate.getTime() / 1000);
     }
 
-    const adsInfo = await fetchAdsPerformanceInfo(spcCds, adsStartTimeSec, adsEndTimeSec, activeShopeeTabId);
+    const adsInfo = await fetchAdsPerformanceInfo(spcCds, adsStartTimeSec, adsEndTimeSec, activeTabId);
     const finalSheetResult = await postToGoogleSheet({
       orders: currentStreamBatch,
       ads_balance: adsInfo.ads_balance,
