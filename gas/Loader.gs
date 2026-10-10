@@ -1,5 +1,5 @@
 /**
- * SHOPEE TO SHEET - DYNAMIC LOADER (BỘ NẠP TỰ ĐỘNG) v1.0
+ * SHOPEE TO SHEET - DYNAMIC LOADER (BỘ NẠP TỰ ĐỘNG) v1.1
  *
  * 💡 CÀI ĐẶT FILE NÀY VÀO GOOGLE APPS SCRIPT ĐÚNG 1 LẦN DUY NHẤT!
  * - Webhook URL tạo ra sẽ dùng VĨNH VIỄN, không bao giờ phải đổi lại trong Extension.
@@ -10,6 +10,15 @@
 const GITHUB_RAW_URL = "https://raw.githubusercontent.com/lequanghuy19204/shopee-order-extension/main/gas/Code.gs";
 const CACHE_KEY = "SHOPEE_CORE_CODE_V1";
 const CACHE_TTL_SECONDS = 7200; // Lưu cache 2 giờ để tốc độ xử lý siêu nhanh (<0.5s)
+
+// Hàm cấp quyền ban đầu (Chạy hàm này 1 lần duy nhất khi vừa dán code để cấp quyền Google Sheet)
+function capQuyenTruyCap() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  UrlFetchApp.fetch("https://google.com");
+  CacheService.getScriptCache();
+  Logger.log("✅ Đã cấp quyền thành công cho bảng tính: " + (ss ? ss.getName() : "OK"));
+  setupSheet();
+}
 
 function loadRemoteCoreCode(forceRefresh) {
   const cache = CacheService.getScriptCache();
@@ -82,8 +91,27 @@ function doGet(e) {
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
-// Chuyển tiếp các hàm menu trên Google Sheet
-function setupDashboard() { loadRemoteCoreCode(false); return globalThis.setupDashboard(); }
-function splitOrdersToMonthlySheets() { loadRemoteCoreCode(false); return globalThis.splitOrdersToMonthlySheets(); }
-function sortByNewestCreated() { loadRemoteCoreCode(false); return globalThis.sortByNewestCreated(); }
-function setupSheet() { loadRemoteCoreCode(false); return globalThis.setupSheet(); }
+// Chuyển tiếp các hàm menu trên Google Sheet kèm khai báo tĩnh quyền SpreadsheetApp
+function setupSheet() {
+  SpreadsheetApp.getActiveSpreadsheet();
+  loadRemoteCoreCode(false);
+  return globalThis.setupSheet();
+}
+
+function setupDashboard() {
+  SpreadsheetApp.getActiveSpreadsheet();
+  loadRemoteCoreCode(false);
+  return globalThis.setupDashboard();
+}
+
+function splitOrdersToMonthlySheets() {
+  SpreadsheetApp.getActiveSpreadsheet();
+  loadRemoteCoreCode(false);
+  return globalThis.splitOrdersToMonthlySheets();
+}
+
+function sortByNewestCreated() {
+  SpreadsheetApp.getActiveSpreadsheet();
+  loadRemoteCoreCode(false);
+  return globalThis.sortByNewestCreated();
+}
