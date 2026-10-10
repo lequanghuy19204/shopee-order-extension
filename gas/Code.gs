@@ -16,6 +16,8 @@ function onOpen() {
       .addItem("📅 Phân loại đơn vào các Sheet Tháng", "splitOrdersToMonthlySheets")
       .addItem("🔄 Sắp xếp đơn mới nhất", "sortByNewestCreated")
       .addItem("🛠️ Thiết lập lại bảng DonHangShopee", "setupSheet")
+      .addSeparator()
+      .addItem("⚡ Cập nhật Code mới nhất từ GitHub", "forceUpdateCode")
       .addToUi();
   } catch (e) {}
 }
@@ -189,12 +191,20 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
 }
 
 function doGet(e) {
+  return handleShopeeGet(e);
+}
+
+function doPost(e) {
+  return handleShopeePost(e);
+}
+
+function handleShopeeGet(e) {
   return ContentService.createTextOutput(JSON.stringify({
     success: true, message: "Shopee Order Webhook is ready!", timestamp: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
 }
 
-function doPost(e) {
+function handleShopeePost(e) {
   const startTime = Date.now();
   try {
     let data;
@@ -436,3 +446,21 @@ function setupDashboard() {
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 65, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
 }
+
+function forceUpdateCode() {
+  SpreadsheetApp.getUi().alert("ℹ️ Bạn đang chạy trực tiếp trên file Code.gs tĩnh.\nĐể tự động nhận cập nhật từ GitHub mà không cần dán lại code, vui lòng chuyển sang sử dụng file Loader.gs!");
+}
+
+// Xuất các hàm để hỗ trợ chế độ Loader.gs
+try {
+  globalThis.handleShopeePost = handleShopeePost;
+  globalThis.handleShopeeGet = handleShopeeGet;
+  globalThis.onOpenCore = onOpen;
+  globalThis.setupDashboard = setupDashboard;
+  globalThis.splitOrdersToMonthlySheets = splitOrdersToMonthlySheets;
+  globalThis.sortByNewestCreated = sortByNewestCreated;
+  globalThis.setupSheet = setupSheet;
+  globalThis.formatSheetTemplate = formatSheetTemplate;
+  globalThis.upsertOrdersToSheet = upsertOrdersToSheet;
+} catch (e) {}
+

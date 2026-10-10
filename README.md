@@ -99,17 +99,24 @@ shopee-order-extension/
 
 ### 1. Thiết Lập Google Apps Script (Webhook)
 
-1. Mở file Google Spreadsheet của bạn (hoặc tạo bảng tính mới).
-2. Trên thanh menu, chọn **Tiện ích mở rộng** $\rightarrow$ **Apps Script**.
-3. Xóa toàn bộ nội dung trong file `Code.gs` và dán toàn bộ code từ file [`gas/Code.gs`](gas/Code.gs).
-4. Nhấn **Lưu (Ctrl + S)**.
-5. Trên thanh công cụ phía trên, chọn hàm **`setupDashboard`** $\rightarrow$ bấm **Chạy (Run)** 1 lần để tạo cấu trúc sheet và cấp quyền truy cập.
-6. Nhấn nút **Triển khai (Deploy)** ở góc phải trên $\rightarrow$ **Tùy chọn triển khai mới (New deployment)**:
+Bạn có 2 lựa chọn cài đặt:
+
+#### 🌟 Cách 1: Sử dụng Bộ nạp tự động `Loader.gs` (KHUYÊN DÙNG - Cài 1 lần dùng vĩnh viễn)
+* **Ưu điểm vượt trội:** Bạn chỉ cần deploy **ĐÚNG 1 LẦN DUY NHẤT**. Webhook URL không bao giờ thay đổi. Từ lần sau, bất cứ khi nào có bản cập nhật hay sửa lỗi trên GitHub, Apps Script sẽ **tự động chạy phiên bản mới nhất 100%**, bạn không cần mở lại Apps Script, không cần dán code, không cần deploy lại hay đổi Webhook URL trong Extension!
+
+1. Mở file Google Spreadsheet của bạn $\rightarrow$ Chọn **Tiện ích mở rộng** $\rightarrow$ **Apps Script**.
+2. Xóa toàn bộ nội dung trong file `Code.gs` và dán nội dung từ file [`gas/Loader.gs`](gas/Loader.gs).
+3. Nhấn **Lưu (Ctrl + S)**.
+4. Trên thanh công cụ phía trên, chọn hàm **`setupDashboard`** $\rightarrow$ bấm **Chạy (Run)** 1 lần để cấp quyền truy cập ban đầu.
+5. Nhấn **Triển khai (Deploy)** $\rightarrow$ **Tùy chọn triển khai mới (New deployment)**:
    - Loại: **Ứng dụng web (Web app)**.
-   - Mô tả: `Shopee Order Webhook v1`.
+   - Mô tả: `Shopee Order Webhook Loader`.
    - Thực thi dưới dạng: **Tôi (Tài khoản của bạn)**.
-   - Ai có quyền truy cập: **Bất kỳ ai (Anyone)** *(Bắt buộc để extension gửi được dữ liệu)*.
-7. Nhấn **Triển khai** và sao chép **URL Ứng dụng web** (dạng `https://script.google.com/macros/s/.../exec`).
+   - Ai có quyền truy cập: **Bất kỳ ai (Anyone)**.
+6. Nhấn **Triển khai** và sao chép **URL Ứng dụng web** (dạng `https://script.google.com/macros/s/.../exec`).
+
+#### 📦 Cách 2: Cài đặt tĩnh truyền thống bằng `Code.gs`
+Dán toàn bộ code từ file [`gas/Code.gs`](gas/Code.gs) vào Apps Script. Mỗi khi có phiên bản mới, bạn cần dán lại code và tạo phiên bản mới (New deployment/version).
 
 ---
 
