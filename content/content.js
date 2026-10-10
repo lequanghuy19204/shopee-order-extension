@@ -51,7 +51,7 @@
           method: "GET", credentials: "include"
         }).then(r => r.json()).catch(() => null),
 
-        fetch("https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components", {
+        fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
           method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
           body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
         }).then(r => r.json()).catch(() => null)
@@ -66,9 +66,9 @@
         const prod = sBreakdown.find(b => b.field_name === "MERCHANDISE_SUBTOTAL")?.amount;
         const escrow = sBreakdown.find(b => b.field_name === "ESCROW_AMOUNT")?.amount;
         const buyerPaid = bBreakdown.find(b => b.field_name === "BUYER_PAID_AMOUNT")?.amount;
-        if (prod !== undefined) product_amount = Math.round(Number(prod) / 100000);
-        if (escrow !== undefined) escrow_amount = Math.round(Number(escrow) / 100000);
-        if (buyerPaid !== undefined) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
+        if (prod !== undefined && prod !== null) product_amount = Math.round(Number(prod) / 100000);
+        if (escrow !== undefined && escrow !== null) escrow_amount = Math.round(Number(escrow) / 100000);
+        if (buyerPaid !== undefined && buyerPaid !== null) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
       }
 
       if (product_amount === null && detailRes?.data?.order_items) {
@@ -77,6 +77,10 @@
       }
       if (buyer_paid_amount === null && detailRes?.data?.total_price) {
         buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
+      }
+      if (escrow_amount === null && (product_amount || buyer_paid_amount)) {
+        const base = product_amount || buyer_paid_amount || 0;
+        if (base > 0) escrow_amount = Math.round(base * 0.895);
       }
 
       return { create_time, product_amount, escrow_amount, buyer_paid_amount };
@@ -118,12 +122,19 @@
     if (msg.action === "batch_fetch_income") {
       (async () => {
         const orderIds = msg.orderIds || [];
-        const results = await Promise.all(
-          orderIds.map(async (id) => {
-            const inc = await fetchIncomeDirect(id);
-            return { order_id: id, ...(inc || {}) };
-          })
-        );
+        const results = [];
+        const CHUNK = 8;
+        for (let i = 0; i < orderIds.length; i += CHUNK) {
+          const slice = orderIds.slice(i, i + CHUNK);
+          const chunkRes = await Promise.all(
+            slice.map(async (id) => {
+              const inc = await fetchIncomeDirect(id);
+              return { order_id: id, ...(inc || {}) };
+            })
+          );
+          results.push(...chunkRes);
+          if (i + CHUNK < orderIds.length) await new Promise(r => setTimeout(r, 30));
+        }
         sendResponse({ success: true, data: results });
       })();
       return true;

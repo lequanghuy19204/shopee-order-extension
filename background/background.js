@@ -91,22 +91,48 @@ async function fetchOrderDetailAndIncome(orderId, spcCds) {
       if (s > 0) product_amount = s;
     }
     if (buyer_paid_amount === null && detailRes?.data?.total_price) buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
+    if (escrow_amount === null && (product_amount || buyer_paid_amount)) {
+      const base = product_amount || buyer_paid_amount || 0;
+      if (base > 0) escrow_amount = Math.round(base * 0.895);
+    }
     return { create_time, product_amount, escrow_amount, buyer_paid_amount };
   } catch (e) { return null; }
 }
 
-async function fetchIncomeViaTab(orderIds) {
+async function fetchIncomeViaTab(orderIds, preferredTabId) {
   try {
-    const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" });
-    let targetTab = tabs[0], created = false;
-    if (!targetTab) {
-      targetTab = await chrome.tabs.create({ url: "https://banhang.shopee.vn/portal/sale/order", active: false });
+    let targetTabId = preferredTabId;
+    if (!targetTabId) {
+      try {
+        const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" });
+        if (tabs && tabs.length > 0) targetTabId = tabs[0].id;
+      } catch (e) {}
+    }
+    if (!targetTabId) {
+      try {
+        const allTabs = await chrome.tabs.query({});
+        const shopeeTab = allTabs.find(t => t.url && t.url.includes("banhang.shopee.vn"));
+        if (shopeeTab) targetTabId = shopeeTab.id;
+      } catch (e) {}
+    }
+    let created = false;
+    if (!targetTabId) {
+      const newTab = await chrome.tabs.create({ url: "https://banhang.shopee.vn/portal/sale/order", active: false });
+      targetTabId = newTab.id;
       created = true;
       await new Promise(r => setTimeout(r, 2500));
     }
-    if (targetTab) {
-      const res = await new Promise(r => chrome.tabs.sendMessage(targetTab.id, { action: "batch_fetch_income", orderIds }, r));
-      if (created) chrome.tabs.remove(targetTab.id).catch(() => {});
+    if (targetTabId) {
+      const res = await new Promise(r => {
+        chrome.tabs.sendMessage(targetTabId, { action: "batch_fetch_income", orderIds }, response => {
+          if (chrome.runtime.lastError) {
+            r(null);
+          } else {
+            r(response);
+          }
+        });
+      });
+      if (created) chrome.tabs.remove(targetTabId).catch(() => {});
       if (res?.success && Array.isArray(res.data)) {
         const m = new Map();
         res.data.forEach(it => { if (it?.order_id) m.set(String(it.order_id), it); });
@@ -161,9 +187,16 @@ function formatShopeeOrderCard(card, extraInfo) {
 
   const rawPrice = card.payment_info?.total_price || 0;
   const buyer_paid_amount = (extraInfo?.buyer_paid_amount !== null && extraInfo?.buyer_paid_amount !== undefined) ? extraInfo.buyer_paid_amount : Math.round(Number(rawPrice) / 100000);
-  const product_amount = (extraInfo?.product_amount !== null && extraInfo?.product_amount !== undefined) ? extraInfo.product_amount : 0;
+  const product_amount = (extraInfo?.product_amount !== null && extraInfo?.product_amount !== undefined) ? extraInfo.product_amount : buyer_paid_amount;
   let escrow_amount = 0;
-  if (order_status !== "Đã hủy" && extraInfo?.escrow_amount !== null && extraInfo?.escrow_amount !== undefined) escrow_amount = extraInfo.escrow_amount;
+  if (order_status.toLowerCase().includes("hủy")) {
+    escrow_amount = 0;
+  } else if (extraInfo?.escrow_amount !== null && extraInfo?.escrow_amount !== undefined) {
+    escrow_amount = extraInfo.escrow_amount;
+  } else {
+    const basePrice = product_amount > 0 ? product_amount : buyer_paid_amount;
+    escrow_amount = basePrice > 0 ? Math.round(basePrice * 0.895) : 0;
+  }
 
   const fulfilment = card.fulfilment_info || {};
   const shipping_carrier = fulfilment.fulfilment_channel_name || fulfilment.masked_channel_name || "SPX Express";
@@ -304,7 +337,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
 
         // Ưu tiên lấy doanh thu trực tiếp từ Tab Shopee đang mở (Same-Origin) hoặc qua API
         const oids = rawCards.map(c => c.order_ext_info?.order_id || c.order_id).filter(Boolean);
-        const tabMap = await fetchIncomeViaTab(oids);
+        const tabMap = await fetchIncomeViaTab(oids, options.tabId);
         const extraMap = tabMap || new Map();
 
         for (let k = 0; k < rawCards.length; k += 5) {
@@ -322,7 +355,8 @@ async function performFullSync(customWebhookUrl, options = {}) {
         }
 
         rawCards.forEach(cardObj => {
-          const oid = cardObj.order_ext_info?.order_id, extra = oid ? extraMap.get(String(oid)) : null;
+          const oid = cardObj.order_ext_info?.order_id || cardObj.order_id;
+          const extra = oid ? extraMap.get(String(oid)) : null;
           const parsed = formatShopeeOrderCard(cardObj, extra);
           if (parsed) {
             if (cutoffTs && new Date(parsed.created_at).getTime() < cutoffTs) reachedCutoff = true;
@@ -441,7 +475,11 @@ chrome.runtime.onInstalled.addListener(checkAndInitAutoSync);
 
 chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
   if (req.action === "trigger_full_sync") {
-    performFullSync(req.webhookUrl, { syncMode: req.syncMode || "all", monthsCount: req.monthsCount || 1 })
+    performFullSync(req.webhookUrl, {
+      syncMode: req.syncMode || "all",
+      monthsCount: req.monthsCount || 1,
+      tabId: sender.tab?.id
+    })
       .then(r => sendResponse(r)).catch(e => sendResponse({ success: false, message: e.toString() }));
     return true;
   }
@@ -474,7 +512,7 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           oid = idxRes?.data?.index_list?.[0]?.order_id;
         }
         if (oid) {
-          const tabMap = await fetchIncomeViaTab([oid]), tabInc = tabMap ? tabMap.get(String(oid)) : null;
+          const tabMap = await fetchIncomeViaTab([oid], sender.tab?.id), tabInc = tabMap ? tabMap.get(String(oid)) : null;
           const detail = await fetchOrderDetailAndIncome(oid, spcCds);
           if (detail?.create_time) payload.created_at = new Date(detail.create_time * 1000).toISOString();
           const p = tabInc?.product_amount ?? detail?.product_amount, e = tabInc?.escrow_amount ?? detail?.escrow_amount, b = tabInc?.buyer_paid_amount ?? detail?.buyer_paid_amount;

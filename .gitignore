@@ -1,4 +1,6 @@
-# Operating System files
+# Archives
+*.zip
+
 .DS_Store
 Thumbs.db
 desktop.ini

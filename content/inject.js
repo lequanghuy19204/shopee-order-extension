@@ -166,14 +166,17 @@
     // 2. Tổng tiền sản phẩm trực tiếp từ Shopee API
     const product_amount = (extraInfo && extraInfo.product_amount !== null && extraInfo.product_amount !== undefined)
       ? extraInfo.product_amount
-      : 0;
+      : buyer_paid_amount;
 
     // 3. Doanh thu đơn hàng ước tính trực tiếp từ Shopee API
     let escrow_amount = 0;
-    if (order_status === "Đã hủy") {
+    if (order_status.toLowerCase().includes("hủy")) {
       escrow_amount = 0;
     } else if (extraInfo && extraInfo.escrow_amount !== null && extraInfo.escrow_amount !== undefined) {
       escrow_amount = extraInfo.escrow_amount;
+    } else {
+      const basePrice = product_amount > 0 ? product_amount : buyer_paid_amount;
+      escrow_amount = basePrice > 0 ? Math.round(basePrice * 0.895) : 0;
     }
 
     const fulfilment = card.fulfilment_info || {};
