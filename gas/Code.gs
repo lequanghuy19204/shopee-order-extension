@@ -432,25 +432,28 @@ function setupDashboard(adsData) {
   db.setRowHeight(1, 38);
   db.setRowHeight(2, 8);
 
-  // 1. 5 Thẻ KPI (Tổng tiền sản phẩm & Sản phẩm đã bán trừ đi Đã hủy và Trả hàng/Hoàn tiền có Doanh thu < 0)
+  // 1. 6 Thẻ KPI (Tổng tiền sản phẩm & Sản phẩm đã bán trừ đi Đã hủy và Trả hàng/Hoàn tiền có Doanh thu < 0)
   const formValid = "'DonHangShopee'!$L$3:$L$50000, \"<>*hủy*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\"";
   const formProdTotal = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, ${formValid})`;
   const formQtyTotal = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, ${formValid})`;
+  const formOrdersSoldTotal = `=COUNTIFS('DonHangShopee'!$B$3:$B$50000, "<>", 'DonHangShopee'!$L$3:$L$50000, "<>*hủy*", 'DonHangShopee'!$J$3:$J$50000, ">=0")`;
 
   const kpiNotes = [
     "💰 DOANH THU ƯỚC TÍNH (VỀ VÍ):\n• Nguồn dữ liệu: Ô 'DonHangShopee'!J2 (=SUM toàn bộ cột J Doanh thu đơn hàng ước tính).\n• Ý nghĩa: Tổng số tiền thực nhận dự kiến Shopee chuyển về ví người bán sau khi trừ tất cả chi phí sàn, phí thanh toán, voucher trợ giá, hoa hồng tiếp thị...",
     "📈 TỔNG TIỀN SẢN PHẨM:\n• Nguồn dữ liệu: Cột I (Tổng tiền sản phẩm) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tiền SP, Không hủy, Doanh thu >= 0).\n• Ý nghĩa: Tổng giá trị hàng hóa niêm yết bán ra, ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và các đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
     "📦 TỔNG ĐƠN HÀNG:\n• Công thức: =COUNTA('DonHangShopee'!B3:B50000).\n• Vị trí ô: G4.\n• Ý nghĩa: Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (bao gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền).",
-    "👕 SẢN PHẨM ĐÃ BÁN:\n• Nguồn dữ liệu: Cột H (Tổng SL) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tổng SL, Không hủy, Doanh thu >= 0).\n• Ý nghĩa: Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao, ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
-    "🚨 TỶ LỆ HỦY ĐƠN:\n• Công thức: =IFERROR(COUNTIF('DonHangShopee'!L3:L50000, \"*hủy*\") / COUNTA('DonHangShopee'!B3:B50000), 0).\n• Ý nghĩa: Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."
+    "🛍️ TỔNG ĐƠN HÀNG ĐÃ BÁN:\n• Nguồn dữ liệu: Bảng DonHangShopee.\n• Công thức: =COUNTIFS(Mã đơn, '<>', Trạng thái, '<>*hủy*', Doanh thu, '>=0').\n• Vị trí ô: I4.\n• Ý nghĩa: Tổng số lượng đơn hàng bán thành công hoặc đang vận chuyển, ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
+    "👕 SẢN PHẨM ĐÃ BÁN:\n• Nguồn dữ liệu: Cột H (Tổng SL) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tổng SL, Không hủy, Doanh thu >= 0).\n• Vị trí ô: L4.\n• Ý nghĩa: Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao, ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
+    "🚨 TỶ LỆ HỦY ĐƠN:\n• Công thức: =IFERROR(COUNTIF('DonHangShopee'!L3:L50000, \"*hủy*\") / COUNTA('DonHangShopee'!B3:B50000), 0).\n• Vị trí ô: O4.\n• Ý nghĩa: Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."
   ];
 
   [
-    ["A3:C4","A3:C3","A4:C4","💰 DOANH THU ƯỚC TÍNH (VỀ VÍ)","='DonHangShopee'!J2","#D4EFDF","#145A32","#,##0 \"₫\""],
-    ["D3:F4","D3:F3","D4:F4","📈 TỔNG TIỀN SẢN PHẨM",formProdTotal,"#D6EAF8","#1B4F72","#,##0 \"₫\""],
-    ["G3:I4","G3:I3","G4:I4","📦 TỔNG ĐƠN HÀNG","=COUNTA('DonHangShopee'!B3:B50000)","#E8DAEF","#512E5F","#,##0"],
-    ["J3:L4","J3:L3","J4:L4","👕 SẢN PHẨM ĐÃ BÁN",formQtyTotal,"#F2F4F4","#2C3E50","#,##0"],
-    ["M3:P4","M3:P3","M4:P4","🚨 TỶ LỆ HỦY ĐƠN","=IFERROR(COUNTIF('DonHangShopee'!L3:L50000,\"*hủy*\")/COUNTA('DonHangShopee'!B3:B50000),0)","#FADBD8","#B03A2E","0.0%"]
+    ["A3:C4", "A3:C3", "A4:C4", "💰 DOANH THU ƯỚC TÍNH (VỀ VÍ)", "='DonHangShopee'!J2", "#D4EFDF", "#145A32", "#,##0 \"₫\""],
+    ["D3:F4", "D3:F3", "D4:F4", "📈 TỔNG TIỀN SẢN PHẨM", formProdTotal, "#D6EAF8", "#1B4F72", "#,##0 \"₫\""],
+    ["G3:H4", "G3:H3", "G4:H4", "📦 TỔNG ĐƠN HÀNG", "=COUNTA('DonHangShopee'!B3:B50000)", "#E8DAEF", "#512E5F", "#,##0"],
+    ["I3:K4", "I3:K3", "I4:K4", "🛍️ TỔNG ĐƠN HÀNG ĐÃ BÁN", formOrdersSoldTotal, "#E8F8F5", "#117A65", "#,##0"],
+    ["L3:N4", "L3:N3", "L4:N4", "👕 SẢN PHẨM ĐÃ BÁN", formQtyTotal, "#F2F4F4", "#2C3E50", "#,##0"],
+    ["O3:P4", "O3:P3", "O4:P4", "🚨 TỶ LỆ HỦY ĐƠN", "=IFERROR(COUNTIF('DonHangShopee'!L3:L50000,\"*hủy*\")/COUNTA('DonHangShopee'!B3:B50000),0)", "#FADBD8", "#B03A2E", "0.0%"]
   ].forEach(([rng, top, val, title, form, bg, c, fmt], i) => {
     db.getRange(top).merge().setValue(title).setFontSize(9).setFontWeight("bold").setFontColor("#555").setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNote(kpiNotes[i]);
     db.getRange(val).merge().setFormula(form).setFontSize(15).setFontWeight("bold").setFontColor(c).setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat(fmt).setNote(kpiNotes[i]);
@@ -853,8 +856,9 @@ function setupDashboard(adsData) {
     ["KPI Tổng quan", "Doanh thu ước tính (A4)", "='DonHangShopee'!J2", "Tổng số tiền thực nhận dự kiến về ví Shopee sau khi trừ các khoản phí sàn, voucher, hoa hồng tiếp thị..."],
     ["KPI Tổng quan", "Tổng tiền sản phẩm (D4)", "=SUMIFS(I:I, L:L, \"<>*hủy*\", J:J, \">=0\")", "Tổng giá trị hàng hóa niêm yết bán ra của các đơn hợp lệ. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và các đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0)."],
     ["KPI Tổng quan", "Tổng đơn hàng (G4)", "=COUNTA('DonHangShopee'!B3:B50000)", "Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền)."],
-    ["KPI Tổng quan", "Sản phẩm đã bán (J4)", "=SUMIFS(H:H, L:L, \"<>*hủy*\", J:J, \">=0\")", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0)."],
-    ["KPI Tổng quan", "Tỷ lệ hủy đơn (M4)", "=COUNTIF(L:L, \"*hủy*\") / COUNTA(B:B)", "Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."],
+    ["KPI Tổng quan", "Tổng đơn hàng đã bán (I4)", "=COUNTIFS(B:B, \"<>\", L:L, \"<>*hủy*\", J:J, \">=0\")", "Tổng số đơn hàng bán thành công hoặc đang vận chuyển. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0)."],
+    ["KPI Tổng quan", "Sản phẩm đã bán (L4)", "=SUMIFS(H:H, L:L, \"<>*hủy*\", J:J, \">=0\")", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0)."],
+    ["KPI Tổng quan", "Tỷ lệ hủy đơn (O4)", "=COUNTIF(L:L, \"*hủy*\") / COUNTA(B:B)", "Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."],
     ["Thống kê Ngày", "Số đơn hôm nay (B8)", "=COUNTIFS(A:A, \">=TODAY()\", A:A, \"<TODAY()+1\")", "Số đơn hàng phát sinh từ 00:00:00 đến 23:59:59 của ngày hôm nay."],
     ["Thống kê Ngày", "Tổng SL hôm nay (C8)", "=SUMIFS(H:H, Hôm nay, Không hủy, Doanh thu >= 0)", "Tổng số lượng sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy và đơn bồi hoàn hoàn tiền)."],
     ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(I:I, Hôm nay, Không hủy, Doanh thu >= 0)", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy và đơn bồi hoàn hoàn tiền)."],
