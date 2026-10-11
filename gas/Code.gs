@@ -398,16 +398,16 @@ function setupDashboard(adsData) {
   db.setRowHeight(1, 38);
   db.setRowHeight(2, 8);
 
-  // 1. 5 Thẻ KPI (Đã bỏ "💳 KHÁCH ĐÃ THANH TOÁN", Tổng tiền sản phẩm & Sản phẩm đã bán trừ đi Đã hủy và Trả hàng/Hoàn tiền)
-  const formExcluded = "'DonHangShopee'!$L$3:$L$50000, \"<>*hủy*\", 'DonHangShopee'!$L$3:$L$50000, \"<>*trả*\", 'DonHangShopee'!$L$3:$L$50000, \"<>*hoàn*\", 'DonHangShopee'!$M$3:$M$50000, \"<>*hủy*\", 'DonHangShopee'!$M$3:$M$50000, \"<>*trả*\", 'DonHangShopee'!$M$3:$M$50000, \"<>*hoàn*\"";
-  const formProdTotal = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
-  const formQtyTotal = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+  // 1. 5 Thẻ KPI (Tổng tiền sản phẩm & Sản phẩm đã bán trừ đi Đã hủy và Trả hàng/Hoàn tiền có Doanh thu < 0)
+  const formValid = "'DonHangShopee'!$L$3:$L$50000, \"<>*hủy*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\"";
+  const formProdTotal = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, ${formValid})`;
+  const formQtyTotal = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, ${formValid})`;
 
   const kpiNotes = [
     "💰 DOANH THU ƯỚC TÍNH (VỀ VÍ):\n• Nguồn dữ liệu: Ô 'DonHangShopee'!J2 (=SUM toàn bộ cột J Doanh thu đơn hàng ước tính).\n• Ý nghĩa: Tổng số tiền thực nhận dự kiến Shopee chuyển về ví người bán sau khi trừ tất cả chi phí sàn, phí thanh toán, voucher trợ giá, hoa hồng tiếp thị...",
-    "📈 TỔNG TIỀN SẢN PHẨM:\n• Nguồn dữ liệu: Cột I (Tổng tiền sản phẩm) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tiền SP, Không hủy/hoàn) - SUMIFS(Tiền SP, Đã giao & Doanh thu < 0).\n• Ý nghĩa: Tổng giá trị hàng hóa niêm yết bán ra, ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy, Trả hàng/Hoàn tiền, và các đơn Đã giao nhưng có Doanh thu ước tính < 0 (khiếu nại bồi hoàn).",
+    "📈 TỔNG TIỀN SẢN PHẨM:\n• Nguồn dữ liệu: Cột I (Tổng tiền sản phẩm) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tiền SP, Không hủy, Doanh thu >= 0).\n• Ý nghĩa: Tổng giá trị hàng hóa niêm yết bán ra, ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và các đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
     "📦 TỔNG ĐƠN HÀNG:\n• Công thức: =COUNTA('DonHangShopee'!B3:B50000).\n• Vị trí ô: G4.\n• Ý nghĩa: Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (bao gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền).",
-    "👕 SẢN PHẨM ĐÃ BÁN:\n• Nguồn dữ liệu: Cột H (Tổng SL) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tổng SL, Không hủy/hoàn) - SUMIFS(Tổng SL, Đã giao & Doanh thu < 0).\n• Ý nghĩa: Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao, ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao có Doanh thu ước tính < 0.",
+    "👕 SẢN PHẨM ĐÃ BÁN:\n• Nguồn dữ liệu: Cột H (Tổng SL) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tổng SL, Không hủy, Doanh thu >= 0).\n• Ý nghĩa: Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao, ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
     "🚨 TỶ LỆ HỦY ĐƠN:\n• Công thức: =IFERROR(COUNTIF('DonHangShopee'!L3:L50000, \"*hủy*\") / COUNTA('DonHangShopee'!B3:B50000), 0).\n• Ý nghĩa: Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."
   ];
 
@@ -433,15 +433,15 @@ function setupDashboard(adsData) {
 
   db.getRange("A7").setNote("Ngày ghi nhận dữ liệu (mặc định lấy ngày hôm nay TODAY).");
   db.getRange("B7").setNote("Số lượng đơn hàng phát sinh trong ngày:\n=COUNTIFS(Ngày tạo, '>=Hôm nay', Ngày tạo, '<Ngày mai')");
-  db.getRange("C7").setNote("Tổng số lượng sản phẩm bán được trong ngày hôm nay.\nĐÃ LOẠI TRỪ: Đơn hủy, trả hàng, hoàn tiền, doanh thu ước tính < 0.");
-  db.getRange("D7").setNote("Tổng tiền sản phẩm bán được trong ngày hôm nay.\nĐÃ LOẠI TRỪ: Đơn hủy, trả hàng, hoàn tiền, doanh thu ước tính < 0.");
+  db.getRange("C7").setNote("Tổng số lượng sản phẩm bán được trong ngày hôm nay.\nĐÃ LOẠI TRỪ: Đơn hủy và đơn trả hàng/hoàn tiền có doanh thu < 0.");
+  db.getRange("D7").setNote("Tổng tiền sản phẩm bán được trong ngày hôm nay.\nĐÃ LOẠI TRỪ: Đơn hủy và đơn trả hàng/hoàn tiền có doanh thu < 0.");
   db.getRange("E7").setNote("Tổng doanh thu thực nhận ước tính về ví Shopee của các đơn phát sinh trong ngày hôm nay.");
   db.getRange("F7").setNote("Chỉ số hoàn vốn quảng cáo hôm nay:\nROAS = (Tiền sản phẩm D8) / (Chi phí DVHT hôm nay L22).\nĐo lường 1 đồng chi phí quảng cáo hôm nay tạo ra bao nhiêu đồng tiền sản phẩm.");
   db.getRange("G7").setNote("Lợi nhuận ước tính hôm nay:\n= Doanh thu ước tính (E8) - Chi phí DVHT hôm nay (L22) - (Tổng tiền sản phẩm D8 * 32% giá vốn ước tính).");
   db.getRange("H7").setNote("Định danh mốc thời gian (Hôm nay).");
 
-  const formQtyToday = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
-  const formProdToday = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+  const formQtyToday = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formValid})`;
+  const formProdToday = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formValid})`;
 
   db.getRange("A8:H8").setFormulas([[
     "=TODAY()",
@@ -455,8 +455,8 @@ function setupDashboard(adsData) {
   ]]);
   db.getRange("A8").setNumberFormat("dd/MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold").setNote("Công thức: =TODAY()\nLấy ngày hiện tại theo thời gian thực.");
   db.getRange("B8").setHorizontalAlignment("center").setNumberFormat("#,##0").setNote("Công thức: =COUNTIFS(Ngày tạo, '>=TODAY()', Ngày tạo, '<TODAY()+1')\nĐếm các đơn phát sinh từ 00:00 đến 23:59 hôm nay.");
-  db.getRange("C8").setHorizontalAlignment("center").setNumberFormat("#,##0").setNote("Công thức: =SUMIFS(Tổng SL hôm nay, Không hủy/hoàn) - SUMIFS(Tổng SL, Đã giao & Doanh thu < 0)\nSố lượng sản phẩm hợp lệ hôm nay.");
-  db.getRange("D8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setNote("Công thức: =SUMIFS(Tiền SP hôm nay, Không hủy/hoàn) - SUMIFS(Tiền SP, Đã giao & Doanh thu < 0)\nTiền sản phẩm hợp lệ hôm nay.");
+  db.getRange("C8").setHorizontalAlignment("center").setNumberFormat("#,##0").setNote("Công thức: =SUMIFS(Tổng SL hôm nay, Không hủy, Doanh thu >= 0)\nSố lượng sản phẩm hợp lệ hôm nay.");
+  db.getRange("D8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setNote("Công thức: =SUMIFS(Tiền SP hôm nay, Không hủy, Doanh thu >= 0)\nTiền sản phẩm hợp lệ hôm nay.");
   db.getRange("E8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449").setNote("Công thức: =SUMIFS(Doanh thu ước tính, Ngày tạo hôm nay)\nTiền thực nhận dự kiến về ví Shopee hôm nay.");
   db.getRange("F8").setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400").setNote("Công thức: =IFERROR(D8/$L$22, 0)\nLấy Tiền sản phẩm hôm nay (D8) chia cho Chi phí DVHT hôm nay (L22).");
   db.getRange("G8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#27AE60").setNote("Công thức: =E8 - $L$22 - (D8 * 0.32)\nLãi ước tính hôm nay = Doanh thu ước tính (E8) - Chi phí DVHT hôm nay (L22) - (Tổng tiền sản phẩm D8 * 32% giá vốn ước tính).");
@@ -507,8 +507,8 @@ function setupDashboard(adsData) {
   for (let i = 0; i < N; i++) {
     const r = 12 + i, mDate = sortedMonths[i];
     const adsR = 24 + i;
-    const formQtyMonth = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
-    const formProdMonth = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
+    const formQtyMonth = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formValid})`;
+    const formProdMonth = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&A${r}, 'DonHangShopee'!$A$3:$A$50000, "<"&EDATE(A${r},1), ${formValid})`;
 
     mFormulas.push([
       `=DATE(${mDate.getFullYear()}, ${mDate.getMonth() + 1}, 1)`,
@@ -582,11 +582,11 @@ function setupDashboard(adsData) {
     ],
     [
       "🟡 Chờ xử lý / Lấy hàng",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\")",
+      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*chờ*\")",
       "=IFERROR(K9/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$H$3:$H$50000)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$I$3:$I$50000)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ lấy*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"Chờ\", 'DonHangShopee'!$J$3:$J$50000)",
+      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ*\", 'DonHangShopee'!$H$3:$H$50000)",
+      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ*\", 'DonHangShopee'!$I$3:$I$50000)",
+      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*chờ*\", 'DonHangShopee'!$J$3:$J$50000)",
       "Đang chuẩn bị"
     ],
     [
@@ -609,11 +609,11 @@ function setupDashboard(adsData) {
     ],
     [
       "🟣 Trả hàng / Hoàn tiền",
-      "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\") + COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")",
+      "=COUNTIFS('DonHangShopee'!$J$3:$J$50000, \"<0\") + COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"*trả*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\")",
       "=IFERROR(K12/$G$4, 0)",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\", 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\", 'DonHangShopee'!$H$3:$H$50000) + SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")",
-      "=SUMIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\", 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\", 'DonHangShopee'!$I$3:$I$50000) + SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")",
-      "=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")",
+      "=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$J$3:$J$50000, \"<0\") + SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$L$3:$L$50000, \"*trả*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$L$3:$L$50000, \"*hoàn*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\")",
+      "=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$J$3:$J$50000, \"<0\") + SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$L$3:$L$50000, \"*trả*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$L$3:$L$50000, \"*hoàn*\", 'DonHangShopee'!$J$3:$J$50000, \">=0\")",
+      "=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$J$3:$J$50000, \"<0\")",
       "Khiếu nại/Hoàn"
     ]
   ];
@@ -798,22 +798,22 @@ function setupDashboard(adsData) {
 
   const guideItems = [
     ["KPI Tổng quan", "Doanh thu ước tính (A4)", "='DonHangShopee'!J2", "Tổng số tiền thực nhận dự kiến về ví Shopee sau khi trừ các khoản phí sàn, voucher, hoa hồng tiếp thị..."],
-    ["KPI Tổng quan", "Tổng tiền sản phẩm (D4)", "=SUMIFS(I:I) trừ đơn Hủy, Trả/Hoàn, Doanh thu < 0", "Tổng giá trị hàng hóa niêm yết bán ra. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao nhưng có Doanh thu < 0 (khiếu nại bồi hoàn)."],
+    ["KPI Tổng quan", "Tổng tiền sản phẩm (D4)", "=SUMIFS(I:I, L:L, \"<>*hủy*\", J:J, \">=0\")", "Tổng giá trị hàng hóa niêm yết bán ra của các đơn hợp lệ. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và các đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0)."],
     ["KPI Tổng quan", "Tổng đơn hàng (G4)", "=COUNTA('DonHangShopee'!B3:B50000)", "Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền)."],
-    ["KPI Tổng quan", "Sản phẩm đã bán (J4)", "=SUMIFS(H:H) trừ đơn Hủy, Trả/Hoàn, Doanh thu < 0", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao có Doanh thu < 0."],
+    ["KPI Tổng quan", "Sản phẩm đã bán (J4)", "=SUMIFS(H:H, L:L, \"<>*hủy*\", J:J, \">=0\")", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0)."],
     ["KPI Tổng quan", "Tỷ lệ hủy đơn (M4)", "=COUNTIF(L:L, \"*hủy*\") / COUNTA(B:B)", "Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."],
     ["Thống kê Ngày", "Số đơn hôm nay (B8)", "=COUNTIFS(A:A, \">=TODAY()\", A:A, \"<TODAY()+1\")", "Số đơn hàng phát sinh từ 00:00:00 đến 23:59:59 của ngày hôm nay."],
-    ["Thống kê Ngày", "Tổng SL hôm nay (C8)", "=SUMIFS(H:H, Hôm nay) trừ đơn hoàn/hủy", "Tổng số lượng sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy, trả hàng, khiếu nại)."],
-    ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(I:I, Hôm nay) trừ đơn hoàn/hủy", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy, trả hàng, khiếu nại)."],
+    ["Thống kê Ngày", "Tổng SL hôm nay (C8)", "=SUMIFS(H:H, Hôm nay, Không hủy, Doanh thu >= 0)", "Tổng số lượng sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy và đơn bồi hoàn hoàn tiền)."],
+    ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(I:I, Hôm nay, Không hủy, Doanh thu >= 0)", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy và đơn bồi hoàn hoàn tiền)."],
     ["Thống kê Ngày", "Doanh thu về ví hôm nay (E8)", "=SUMIFS(J:J, A:A, \">=TODAY()\", A:A, \"<TODAY()+1\")", "Tổng số tiền thực nhận dự kiến về ví Shopee từ các đơn phát sinh trong ngày hôm nay."],
     ["Thống kê Ngày", "ROAS Ngày hôm nay (F8)", "=IFERROR(D8/$L$22, 0)", "Hiệu quả hoàn vốn quảng cáo hôm nay = Tiền sản phẩm hôm nay (D8) chia Chi phí Shopee Ads hôm nay (L22)."],
     ["Thống kê Ngày", "Lãi ước tính hôm nay (G8)", "=E8 - $L$22 - (D8 * 0.32)", "Lợi nhuận ước tính hôm nay = Doanh thu về ví (E8) - Chi phí Shopee Ads hôm nay (L22) - (Tiền sản phẩm D8 * 32% chi phí vốn hàng bán ước tính)."],
-    ["Thống kê Tháng", "Doanh số theo tháng (A12:E...)", "=COUNTIFS & SUMIFS theo từng khoảng ngày của tháng", "Số đơn, số lượng sản phẩm và doanh thu từng tháng. Tiền sản phẩm và Tổng SL đã tự động loại bỏ hoàn/hủy."],
+    ["Thống kê Tháng", "Doanh số theo tháng (A12:E...)", "=COUNTIFS & SUMIFS theo từng khoảng ngày của tháng", "Số đơn, số lượng sản phẩm và doanh thu từng tháng. Tiền sản phẩm và Tổng SL đã tự động loại bỏ đơn hủy và đơn bồi hoàn âm tiền."],
     ["Thống kê Tháng", "ROAS theo từng tháng (F12:F...)", "=IFERROR(Tiền sản phẩm tháng / Chi phí Ads tháng, 0)", "Hiệu quả quảng cáo từng tháng = Tiền sản phẩm tháng đó chia đúng cho Chi phí Ads của tháng đó ở bảng bên phải."],
     ["Thống kê Tháng", "Lãi ước tính theo tháng (G12:G...)", "=Doanh thu về ví tháng - Chi phí Ads tháng - (Tiền sản phẩm tháng * 32%)", "Lợi nhuận ước tính từng tháng = Doanh thu ước tính (E) - Chi phí DVHT của tháng đó (K) - (Tiền sản phẩm D * 32% giá vốn hàng bán). Dòng tổng cộng = SUM(G12:G...)."],
     ["Thống kê Tháng", "ROAS Toàn kỳ (F dòng tổng cộng)", "=IFERROR(Tổng tiền sản phẩm toàn kỳ / $M$22, 0)", "ROAS tổng hợp = Tổng tiền sản phẩm tất cả các tháng chia cho Tổng chi phí Ads toàn kỳ (ô M22)."],
     ["Trạng thái đơn", "Phân loại trạng thái (J8:P12)", "COUNT & SUM theo cột Trạng thái đơn (L:L) & Doanh thu (J:J)", "Thống kê chi tiết Số đơn, Tỷ lệ %, Tổng SL sản phẩm, Tiền sản phẩm và Doanh thu về ví theo từng nhóm trạng thái chu trình Shopee."],
-    ["Trạng thái đơn", "Trả hàng / Hoàn tiền (J12:P12)", "=COUNTIF(\"trả/hoàn\") + COUNTIFS(\"Đã giao\", J:J < 0)", "Bao gồm đơn có trạng thái Trả hàng/Hoàn tiền VÀ đơn Đã giao nhưng có Doanh thu < 0 (tiền về ví âm do bồi hoàn/khiếu nại)."],
+    ["Trạng thái đơn", "Trả hàng / Hoàn tiền (J12:P12)", "=COUNTIFS(J:J, \"<0\") + COUNTIFS(\"trả/hoàn\")", "Bao gồm đơn có trạng thái Trả hàng/Hoàn tiền VÀ đơn Đã giao nhưng có Doanh thu < 0 (tiền về ví âm do bồi hoàn/khiếu nại)."],
     ["Đơn vị vận chuyển", "Đối soát ĐVVC (J16:P18)", "=COUNTIF & SUMIF theo cột ĐVVC (D:D)", "Số đơn, tỷ lệ % thị phần, Tổng SL sản phẩm, Tiền sản phẩm và Doanh thu về ví do từng đơn vị vận chuyển phụ trách."],
     ["Quảng cáo Ads", "Số dư ví & Chi phí hôm nay (J22 & L22)", "API Ví: pas/v1/wallet/get", "Số dư khả dụng hiện tại trong ví Ads và chi phí quảng cáo đã chi tiêu trong ngày hôm nay."],
     ["Quảng cáo Ads", "Chi phí Ads theo từng tháng (K24:K...)", "API Báo cáo: pas/v1/report/get_time_graph", "Chi phí quảng cáo thực tế, GMV và ROI do thuật toán Shopee Ads ghi nhận độc lập cho từng tháng."]
