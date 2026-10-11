@@ -18,7 +18,11 @@
   "host_permissions": [
     "https://banhang.shopee.vn/*",
     "https://script.google.com/*",
-    "https://*.googleusercontent.com/*"
+    "https://*.googleusercontent.com/*",
+    "https://api.github.com/*",
+    "https://github.com/*",
+    "https://*.githubusercontent.com/*",
+    "https://*.github.com/*"
   ],
   "action": {
     "default_popup": "popup/popup.html",

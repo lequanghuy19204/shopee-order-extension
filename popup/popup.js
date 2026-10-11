@@ -603,4 +603,96 @@ document.addEventListener("DOMContentLoaded", async () => {
       });
     });
   });
+
+  // 6. TÍNH NĂNG KIỂM TRA & CẬP NHẬT TIỆN ÍCH TỪ GITHUB
+  const manifest = chrome.runtime.getManifest();
+  const currentVer = manifest.version || "1.0.5";
+  const REPO = "lequanghuy19204/shopee-order-extension";
+
+  const headerVerBadge = document.getElementById("headerVerBadge");
+  const cardVerBadge = document.getElementById("cardVerBadge");
+  const footerVerText = document.getElementById("footerVerText");
+  const btnHeaderCheckUpdate = document.getElementById("btnHeaderCheckUpdate");
+  const updateBanner = document.getElementById("updateBanner");
+  const updateBannerVer = document.getElementById("updateBannerVer");
+  const updateBannerDesc = document.getElementById("updateBannerDesc");
+  const btnOpenUpdaterBanner = document.getElementById("btnOpenUpdaterBanner");
+  const updateStatusText = document.getElementById("updateStatusText");
+  const btnCheckUpdateManual = document.getElementById("btnCheckUpdateManual");
+  const btnOpenUpdaterPage = document.getElementById("btnOpenUpdaterPage");
+
+  if (headerVerBadge) headerVerBadge.textContent = `v${currentVer}`;
+  if (cardVerBadge) cardVerBadge.textContent = `v${currentVer}`;
+  if (footerVerText) footerVerText.textContent = `Shopee to Sheet v${currentVer} • Đồng bộ mọi web & Tự động theo chu kỳ`;
+
+  function openUpdaterTab() {
+    chrome.tabs.create({ url: chrome.runtime.getURL("popup/update.html") });
+  }
+
+  if (btnOpenUpdaterBanner) btnOpenUpdaterBanner.addEventListener("click", openUpdaterTab);
+  if (btnOpenUpdaterPage) btnOpenUpdaterPage.addEventListener("click", openUpdaterTab);
+
+  function compareVersions(v1, v2) {
+    const p1 = v1.split(".").map(Number);
+    const p2 = v2.split(".").map(Number);
+    for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+      const n1 = p1[i] || 0;
+      const n2 = p2[i] || 0;
+      if (n1 > n2) return 1;
+      if (n1 < n2) return -1;
+    }
+    return 0;
+  }
+
+  async function checkExtensionUpdate(showManualAlert = false) {
+    if (updateStatusText) updateStatusText.textContent = "Đang kiểm tra GitHub...";
+    try {
+      const res = await fetch(`https://api.github.com/repos/${REPO}/releases/latest`, {
+        headers: { "Accept": "application/vnd.github.v3+json" }
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const release = await res.json();
+      const latestTag = (release.tag_name || "").replace(/^v/, "");
+
+      const isNewer = compareVersions(latestTag, currentVer) > 0;
+      if (isNewer) {
+        if (updateBanner) {
+          updateBanner.classList.remove("hidden");
+          if (updateBannerVer) updateBannerVer.textContent = `v${latestTag}`;
+          if (updateBannerDesc) updateBannerDesc.textContent = (release.name || "Bấm để nâng cấp ngay").slice(0, 45);
+        }
+        if (updateStatusText) {
+          updateStatusText.innerHTML = `<span style="color: #27ae60;">🎉 Đã có bản mới <b>v${latestTag}</b>!</span>`;
+        }
+        if (btnOpenUpdaterPage) btnOpenUpdaterPage.classList.remove("hidden");
+        if (showManualAlert) {
+          if (confirm(`🎉 Đã có phiên bản mới v${latestTag} trên GitHub!\nBạn có muốn mở trang Cập nhật 1-Click ngay bây giờ?`)) {
+            openUpdaterTab();
+          }
+        }
+      } else {
+        if (updateBanner) updateBanner.classList.add("hidden");
+        if (updateStatusText) {
+          updateStatusText.textContent = `✅ Đang là bản mới nhất (v${currentVer})`;
+        }
+        if (btnOpenUpdaterPage) btnOpenUpdaterPage.classList.add("hidden");
+        if (showManualAlert) {
+          alert(`✅ Tiện ích đang ở phiên bản mới nhất (v${currentVer})!`);
+        }
+      }
+    } catch (e) {
+      if (updateStatusText) updateStatusText.textContent = "Không thể kiểm tra";
+      if (showManualAlert) alert(`Không thể kiểm tra cập nhật: ${e.message}`);
+    }
+  }
+
+  if (btnHeaderCheckUpdate) {
+    btnHeaderCheckUpdate.addEventListener("click", () => checkExtensionUpdate(true));
+  }
+  if (btnCheckUpdateManual) {
+    btnCheckUpdateManual.addEventListener("click", () => checkExtensionUpdate(true));
+  }
+
+  // Tự động kiểm tra bản mới ngầm khi mở popup
+  setTimeout(() => checkExtensionUpdate(false), 800);
 });

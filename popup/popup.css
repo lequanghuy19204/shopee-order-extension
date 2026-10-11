@@ -528,3 +528,119 @@ input:checked + .slider:before { transform: translateX(16px); }
   text-align: center; padding: 10px; font-size: 11px; color: var(--text-muted);
   border-top: 1px solid var(--border); background: #ffffff;
 }
+
+/* Header Update Badges & Buttons */
+.badge-ver {
+  display: inline-block;
+  font-size: 10px;
+  background: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 700;
+  vertical-align: middle;
+  margin-left: 4px;
+}
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.btn-header-update {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  color: #ffffff;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+.btn-header-update:hover {
+  background: rgba(255, 255, 255, 0.35);
+  transform: rotate(45deg);
+}
+
+/* Update Alert Banner */
+.update-banner {
+  background: linear-gradient(135deg, #16a085, #27ae60);
+  color: #ffffff;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(39, 174, 96, 0.25);
+}
+.update-banner-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.update-badge-icon {
+  font-size: 18px;
+}
+.update-text-wrap {
+  display: flex;
+  flex-direction: column;
+}
+.update-title {
+  font-size: 12px;
+  font-weight: 700;
+}
+.update-desc {
+  font-size: 10px;
+  opacity: 0.9;
+}
+.btn-update-now {
+  background: #ffffff !important;
+  color: #27ae60 !important;
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  padding: 5px 10px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.15) !important;
+  white-space: nowrap;
+}
+.btn-update-now:hover {
+  background: #f8fafc !important;
+  transform: scale(1.03);
+}
+
+/* Update Card in Main */
+.update-card .badge-ver {
+  background: #eafaf1;
+  color: #27ae60;
+  border: 1px solid #a3e4d7;
+}
+.update-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.update-status-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.update-status-label {
+  color: var(--text-muted);
+}
+.update-status-val {
+  font-weight: 600;
+  color: #2c3e50;
+}
+.update-actions {
+  display: flex;
+  gap: 8px;
+}
+.btn-sm {
+  padding: 6px 10px;
+  font-size: 11.5px;
+}
+

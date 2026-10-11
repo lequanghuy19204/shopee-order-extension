@@ -14,14 +14,29 @@
         <div class="logo-badge">🛒</div>
         <div>
           <h1 class="title">Shopee to Sheet</h1>
-          <p class="subtitle">Xuất đơn & Đối soát hoàn hủy</p>
+          <p class="subtitle">Xuất đơn & Đối soát hoàn hủy <span id="headerVerBadge" class="badge-ver">v1.0.5</span></p>
         </div>
       </div>
-      <div id="statusPill" class="status-pill status-disconnected">
-        <span class="status-dot"></span>
-        <span id="statusText">Chưa kết nối</span>
+      <div class="header-right">
+        <div id="statusPill" class="status-pill status-disconnected">
+          <span class="status-dot"></span>
+          <span id="statusText">Chưa kết nối</span>
+        </div>
+        <button id="btnHeaderCheckUpdate" class="btn-header-update" title="Kiểm tra bản cập nhật mới từ GitHub" type="button">🔄</button>
       </div>
     </header>
+
+    <!-- Update Alert Banner (Tự động hiện khi có bản mới) -->
+    <div id="updateBanner" class="update-banner hidden">
+      <div class="update-banner-left">
+        <span class="update-badge-icon">🎉</span>
+        <div class="update-text-wrap">
+          <div class="update-title">Đã có bản mới: <b id="updateBannerVer">v1.0.6</b></div>
+          <div class="update-desc" id="updateBannerDesc">Nhấn để cập nhật 1-click tự động</div>
+        </div>
+      </div>
+      <button id="btnOpenUpdaterBanner" class="btn btn-update-now" type="button">⚡ CẬP NHẬT</button>
+    </div>
 
     <!-- Main Content -->
     <main class="main-content">
@@ -222,11 +237,33 @@
           <div class="history-empty">Chưa có đơn hàng nào được xuất</div>
         </div>
       </section>
+
+      <!-- Extension Update Card -->
+      <section class="card update-card">
+        <div class="card-header">
+          <span class="card-title">🔄 Cập nhật Tiện ích (GitHub)</span>
+          <span id="cardVerBadge" class="badge-ver">v1.0.5</span>
+        </div>
+        <div class="update-box">
+          <div class="update-status-row">
+            <span class="update-label">Trạng thái:</span>
+            <span id="updateStatusText" class="update-val">Đang kiểm tra...</span>
+          </div>
+          <div class="update-actions">
+            <button id="btnCheckUpdateManual" class="btn btn-outline btn-sm" type="button">
+              🔍 Kiểm tra bản mới
+            </button>
+            <button id="btnOpenUpdaterPage" class="btn btn-primary btn-sm hidden" type="button">
+              ⚡ 1-Click Cập nhật ngay
+            </button>
+          </div>
+        </div>
+      </section>
     </main>
 
     <!-- Footer -->
     <footer class="footer">
-      <span>Phiên bản 2.0.0 &bull; Đồng bộ mọi web & Tự động theo chu kỳ</span>
+      <span id="footerVerText">Shopee to Sheet v1.0.5 &bull; Đồng bộ mọi web & Tự động theo chu kỳ</span>
     </footer>
   </div>
 
