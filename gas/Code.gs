@@ -42,6 +42,9 @@ function getMonthSheetName(dateVal) {
 
 function formatSheetTemplate(sheet) {
   sheet.clear();
+  try {
+    sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).clearNote();
+  } catch (e) {}
   const headers = ["Ngày tạo", "Mã đơn hàng", "Mã vận đơn", "ĐVVC", "Tên người nhận", "Khu vực nhận", "Chi tiết sản phẩm", "Tổng SL", "Tổng tiền sản phẩm", "Doanh thu đơn hàng ước tính", "Tổng tiền Thanh toán của người mua", "Trạng thái đơn", "Tình trạng Hoàn/Hủy", "Ngày cập nhật"];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setFontSize(10).setFontColor("#FFFFFF").setVerticalAlignment("middle").setHorizontalAlignment("center");
   sheet.setRowHeight(1, 38);
@@ -431,6 +434,9 @@ function setupDashboard(adsData) {
     try { ss.setActiveSheet(db); } catch (e) {}
   }
   db.clear();
+  try {
+    db.getRange(1, 1, db.getMaxRows(), db.getMaxColumns()).clearNote();
+  } catch (e) {}
 
   db.getRange("A1:P1").merge().setValue("📊 BÁO CÁO TỔNG QUAN KINH DOANH SHOPEE (LIVE DASHBOARD)")
     .setBackground("#1B2631").setFontColor("#FFFFFF").setFontWeight("bold").setFontSize(13)
