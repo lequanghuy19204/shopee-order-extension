@@ -225,6 +225,12 @@ function doPost(e) {
 }
 
 function handleShopeeGet(e) {
+  if (e && e.parameter && (e.parameter.action === "force_update_code" || e.parameter.force_refresh_code)) {
+    try { setupDashboard(); } catch (err) {}
+    return ContentService.createTextOutput(JSON.stringify({
+      success: true, message: "🎉 Đã cập nhật Code.gs mới nhất từ GitHub và làm mới Dashboard!", timestamp: new Date().toISOString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
   return ContentService.createTextOutput(JSON.stringify({
     success: true, message: "Shopee Order Webhook is ready!", timestamp: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
@@ -245,10 +251,10 @@ function handleShopeePost(e) {
     if (data.orders && Array.isArray(data.orders)) ordersList = data.orders;
     else if (data.order_sn) ordersList = [data];
 
-    if (data.action === "setup_dashboard" || data.refresh_dashboard) {
+    if (data.action === "force_update_code" || data.force_refresh_code || data.action === "setup_dashboard" || data.refresh_dashboard) {
       try { setupDashboard(data); } catch (e) { Logger.log("Lỗi setupDashboard: " + e.toString()); }
       return ContentService.createTextOutput(JSON.stringify({
-        success: true, message: "Đã cập nhật lại toàn bộ Dashboard thành công!"
+        success: true, message: "🎉 Đã cập nhật Code.gs mới nhất từ GitHub và làm mới Dashboard thành công!"
       })).setMimeType(ContentService.MimeType.JSON);
     }
 

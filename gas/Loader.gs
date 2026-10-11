@@ -72,7 +72,17 @@ function forceUpdateCode() {
 }
 
 function doPost(e) {
-  loadRemoteCoreCode(false);
+  let isForce = false;
+  try {
+    if (e && e.postData && e.postData.contents) {
+      const parsed = JSON.parse(e.postData.contents);
+      if (parsed.force_refresh_code || parsed.action === "force_update_code") isForce = true;
+    } else if (e && e.parameter && (e.parameter.force_refresh_code || e.parameter.action === "force_update_code")) {
+      isForce = true;
+    }
+  } catch (err) {}
+
+  loadRemoteCoreCode(isForce);
   if (typeof globalThis.handleShopeePost === "function") {
     return globalThis.handleShopeePost(e);
   }
@@ -80,13 +90,17 @@ function doPost(e) {
 }
 
 function doGet(e) {
-  loadRemoteCoreCode(false);
+  let isForce = false;
+  if (e && e.parameter && (e.parameter.force_refresh_code === "true" || e.parameter.action === "force_update_code")) {
+    isForce = true;
+  }
+  loadRemoteCoreCode(isForce);
   if (typeof globalThis.handleShopeeGet === "function") {
     return globalThis.handleShopeeGet(e);
   }
   return ContentService.createTextOutput(JSON.stringify({
     success: true,
-    message: "Shopee Order Webhook (Dynamic Loader) is ready!",
+    message: isForce ? "Đã nạp lại Code mới nhất từ GitHub thành công!" : "Shopee Order Webhook (Dynamic Loader) is ready!",
     timestamp: new Date().toISOString()
   })).setMimeType(ContentService.MimeType.JSON);
 }

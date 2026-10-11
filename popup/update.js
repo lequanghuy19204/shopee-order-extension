@@ -319,19 +319,45 @@ document.addEventListener("DOMContentLoaded", async () => {
           setProgress(wrPercent, `Đang ghi file: ${targetPath} (${written}/${entries.length})`);
         }
 
+        setProgress(98, "Đang đồng bộ Google Sheet...");
+        addLog("Nâng cấp thành công toàn bộ mã nguồn tiện ích!", "success");
+
+        // 5. Tự động kích hoạt 'Cập nhật Code mới nhất từ GitHub' trên Google Sheet
+        try {
+          addLog("Đang kích hoạt 'Cập nhật Code mới nhất từ GitHub' trên Google Sheet...", "info");
+          const settings = await new Promise((r) => chrome.storage.local.get(["webhookUrl"], r));
+          const webhookUrl = settings?.webhookUrl;
+          if (webhookUrl && webhookUrl.startsWith("https://script.google.com/macros/s/")) {
+            const sheetResp = await fetch(webhookUrl, {
+              method: "POST",
+              headers: { "Content-Type": "text/plain;charset=utf-8" },
+              body: JSON.stringify({
+                action: "force_update_code",
+                force_refresh_code: true,
+                refresh_dashboard: true
+              })
+            }).then(r => r.json()).catch(() => null);
+            addLog("✅ Đã kích hoạt 'Cập nhật Code mới nhất từ GitHub' trên Google Sheet thành công!", "success");
+          } else {
+            addLog("ℹ️ Chưa cấu hình Webhook URL trong tiện ích, bỏ qua cập nhật Sheet.", "info");
+          }
+        } catch (eSheet) {
+          addLog(`⚠️ Không thể kích hoạt Webhook Sheet: ${eSheet.message}`, "warn");
+        }
+
         setProgress(100, "🎉 Cập nhật hoàn tất!");
-        addLog("Nâng cấp thành công toàn bộ mã nguồn!", "success");
+        successNotice.innerHTML = `🎉 Đã cập nhật thành công Tiện ích & Google Sheet lên phiên bản mới!<br>Tiện ích đang tự động khởi động lại...`;
         successNotice.classList.remove("hidden");
         btnStartUpdate.classList.add("hidden");
 
-        // 5. Nạp lại extension
+        // 6. Nạp lại extension
         setTimeout(() => {
           try {
             chrome.runtime.reload();
           } catch (reloadErr) {
             window.location.reload();
           }
-        }, 1800);
+        }, 2200);
       });
 
     } catch (err) {
