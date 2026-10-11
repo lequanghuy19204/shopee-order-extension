@@ -698,39 +698,57 @@ function setupDashboard(adsData) {
 
   const gHeadRow = guideRow + 1;
   db.getRange(gHeadRow, 1, 1, 2).merge().setValue("Nhóm chỉ số");
-  db.getRange(gHeadRow, 3, 1, 2).merge().setValue("Chỉ số / Vị trí");
-  db.getRange(gHeadRow, 5, 1, 3).merge().setValue("Công thức tính toán");
-  db.getRange(gHeadRow, 8, 1, 6).merge().setValue("Ý nghĩa nghiệp vụ & Nguồn dữ liệu");
+  db.getRange(gHeadRow, 3, 1, 3).merge().setValue("Chỉ số / Vị trí");
+  db.getRange(gHeadRow, 6, 1, 3).merge().setValue("Công thức tính toán");
+  db.getRange(gHeadRow, 9, 1, 5).merge().setValue("Ý nghĩa nghiệp vụ & Nguồn dữ liệu");
   db.getRange(gHeadRow, 1, 1, 13).setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setFontSize(9.5).setHorizontalAlignment("center").setVerticalAlignment("middle");
   db.setRowHeight(gHeadRow, 26);
 
   const guideItems = [
     ["KPI Tổng quan", "Doanh thu ước tính (A4)", "='DonHangShopee'!J2", "Tổng số tiền thực nhận dự kiến về ví Shopee sau khi trừ các khoản phí sàn, voucher, hoa hồng tiếp thị..."],
-    ["KPI Tổng quan", "Tổng tiền sản phẩm (C4)", "=SUMIFS(Tiền SP, Không hủy/hoàn) - SUMIFS(Tiền SP, Đã giao & Doanh thu < 0)", "Tổng giá trị hàng hóa niêm yết bán ra. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao nhưng có Doanh thu < 0 (khiếu nại bồi hoàn)."],
+    ["KPI Tổng quan", "Tổng tiền sản phẩm (C4)", "=SUMIFS(I:I) trừ đơn Hủy, Trả/Hoàn, Doanh thu < 0", "Tổng giá trị hàng hóa niêm yết bán ra. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao nhưng có Doanh thu < 0 (khiếu nại bồi hoàn)."],
     ["KPI Tổng quan", "Tổng đơn hàng (E4)", "=COUNTA('DonHangShopee'!B3:B50000)", "Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền)."],
-    ["KPI Tổng quan", "Sản phẩm đã bán (I4)", "=SUMIFS(Tổng SL, Không hủy/hoàn) - SUMIFS(Tổng SL, Đã giao & Doanh thu < 0)", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao có Doanh thu < 0."],
+    ["KPI Tổng quan", "Sản phẩm đã bán (I4)", "=SUMIFS(H:H) trừ đơn Hủy, Trả/Hoàn, Doanh thu < 0", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao có Doanh thu < 0."],
     ["KPI Tổng quan", "Tỷ lệ hủy đơn (K4)", "=COUNTIF(L:L, \"*hủy*\") / COUNTA(B:B)", "Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."],
-    ["Thống kê Ngày", "Số đơn hôm nay (B8)", "=COUNTIFS(Ngày tạo, '>=TODAY()', Ngày tạo, '<TODAY()+1')", "Số đơn hàng phát sinh từ 00:00:00 đến 23:59:59 của ngày hôm nay."],
-    ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(Tiền SP hôm nay, Không hủy/hoàn) trừ đơn doanh thu < 0", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy, trả hàng, khiếu nại)."],
-    ["Thống kê Ngày", "Doanh thu về ví hôm nay (E8)", "=SUMIFS(Doanh thu ước tính, Ngày tạo hôm nay)", "Tổng số tiền thực nhận dự kiến về ví Shopee từ các đơn phát sinh trong ngày hôm nay."],
+    ["Thống kê Ngày", "Số đơn hôm nay (B8)", "=COUNTIFS(A:A, \">=TODAY()\", A:A, \"<TODAY()+1\")", "Số đơn hàng phát sinh từ 00:00:00 đến 23:59:59 của ngày hôm nay."],
+    ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(I:I, Hôm nay) trừ đơn hoàn/hủy", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy, trả hàng, khiếu nại)."],
+    ["Thống kê Ngày", "Doanh thu về ví hôm nay (E8)", "=SUMIFS(J:J, A:A, \">=TODAY()\", A:A, \"<TODAY()+1\")", "Tổng số tiền thực nhận dự kiến về ví Shopee từ các đơn phát sinh trong ngày hôm nay."],
     ["Thống kê Ngày", "ROAS Ngày hôm nay (F8)", "=IFERROR(D8/$K$22, 0)", "Hiệu quả hoàn vốn quảng cáo hôm nay = Tiền sản phẩm hôm nay (D8) chia Chi phí Shopee Ads hôm nay (K22)."],
-    ["Thống kê Tháng", "Doanh số theo tháng (A12:E...)", "=COUNTIFS(...) & SUMIFS(...) theo từng tháng từ ngày 1 đến ngày cuối tháng", "Số đơn, số lượng sản phẩm và doanh thu từng tháng. Tiền sản phẩm và Tổng SL đã tự động loại bỏ hoàn/hủy."],
-    ["Thống kê Tháng", "ROAS theo từng tháng (F12:F...)", "=IFERROR(Tiền sản phẩm tháng / Chi phí DVHT tháng đó, 0)", "Hiệu quả quảng cáo từng tháng = Tiền sản phẩm tháng đó chia đúng cho Chi phí Ads của tháng đó ở bảng bên phải."],
+    ["Thống kê Tháng", "Doanh số theo tháng (A12:E...)", "=COUNTIFS & SUMIFS theo từng khoảng ngày của tháng", "Số đơn, số lượng sản phẩm và doanh thu từng tháng. Tiền sản phẩm và Tổng SL đã tự động loại bỏ hoàn/hủy."],
+    ["Thống kê Tháng", "ROAS theo từng tháng (F12:F...)", "=IFERROR(Tiền sản phẩm tháng / Chi phí Ads tháng, 0)", "Hiệu quả quảng cáo từng tháng = Tiền sản phẩm tháng đó chia đúng cho Chi phí Ads của tháng đó ở bảng bên phải."],
     ["Thống kê Tháng", "ROAS Toàn kỳ (F dòng tổng cộng)", "=IFERROR(Tổng tiền sản phẩm toàn kỳ / $L$22, 0)", "ROAS tổng hợp = Tổng tiền sản phẩm tất cả các tháng chia cho Tổng chi phí Ads toàn kỳ (ô L22)."],
-    ["Trạng thái đơn", "Trả hàng / Hoàn tiền (I12:L12)", "=COUNTIF(\"trả/hoàn\") + COUNTIFS(\"Đã giao\", Doanh thu < 0)", "Bao gồm đơn có trạng thái Trả hàng/Hoàn tiền VÀ đơn Đã giao nhưng có Doanh thu < 0 (tiền về ví âm do bồi hoàn/khiếu nại)."],
+    ["Trạng thái đơn", "Trả hàng / Hoàn tiền (I12:L12)", "=COUNTIF(\"trả/hoàn\") + COUNTIFS(\"Đã giao\", J:J < 0)", "Bao gồm đơn có trạng thái Trả hàng/Hoàn tiền VÀ đơn Đã giao nhưng có Doanh thu < 0 (tiền về ví âm do bồi hoàn/khiếu nại)."],
     ["Đơn vị vận chuyển", "Đối soát ĐVVC (I16:M18)", "=COUNTIF & SUMIF theo cột ĐVVC (D:D)", "Số đơn, tỷ lệ % thị phần giao hàng và doanh thu về ví do từng đơn vị vận chuyển phụ trách."],
-    ["Quảng cáo Ads", "Số dư ví & Chi phí hôm nay (I22 & K22)", "Lấy trực tiếp từ API Ví Dịch vụ hiển thị (wallet/get)", "Số dư khả dụng hiện tại trong ví Ads và chi phí quảng cáo đã chi tiêu trong ngày hôm nay."],
-    ["Quảng cáo Ads", "Chi phí Ads theo từng tháng (J24:J...)", "Lấy từ API Báo cáo Shopee Ads (report/get_time_graph)", "Chi phí quảng cáo thực tế, GMV và ROI do thuật toán Shopee Ads ghi nhận độc lập cho từng tháng."]
+    ["Quảng cáo Ads", "Số dư ví & Chi phí hôm nay (I22 & K22)", "API Ví: pas/v1/wallet/get", "Số dư khả dụng hiện tại trong ví Ads và chi phí quảng cáo đã chi tiêu trong ngày hôm nay."],
+    ["Quảng cáo Ads", "Chi phí Ads theo từng tháng (J24:J...)", "API Báo cáo: pas/v1/report/get_time_graph", "Chi phí quảng cáo thực tế, GMV và ROI do thuật toán Shopee Ads ghi nhận độc lập cho từng tháng."]
   ];
 
   guideItems.forEach((row, idx) => {
     const curR = gHeadRow + 1 + idx;
-    db.getRange(curR, 1, 1, 2).merge().setValue(row[0]).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#2C3E50");
-    db.getRange(curR, 3, 1, 2).merge().setValue(row[1]).setHorizontalAlignment("left").setFontWeight("bold").setFontColor("#1B4F72");
-    db.getRange(curR, 5, 1, 3).merge().setValue(row[2]).setHorizontalAlignment("left").setFontFamily("Consolas").setFontSize(8.5).setFontColor("#78281F");
-    db.getRange(curR, 8, 1, 6).merge().setValue(row[3]).setHorizontalAlignment("left").setFontColor("#333").setWrap(true);
-    db.getRange(curR, 1, 1, 13).setBackground(idx % 2 === 0 ? "#FFFFFF" : "#F9FAFA").setBorder(true, true, true, true, null, null, "#EAEDED", SpreadsheetApp.BorderStyle.SOLID);
-    db.setRowHeight(curR, 26);
+    db.getRange(curR, 1, 1, 2).merge().setValue(row[0])
+      .setHorizontalAlignment("center").setVerticalAlignment("middle")
+      .setFontWeight("bold").setFontColor("#2C3E50").setWrap(true);
+
+    db.getRange(curR, 3, 1, 3).merge().setValue(row[1])
+      .setHorizontalAlignment("left").setVerticalAlignment("middle")
+      .setFontWeight("bold").setFontColor("#1B4F72").setWrap(true);
+
+    let formulaStr = String(row[2]);
+    if (formulaStr.startsWith("=")) formulaStr = "'" + formulaStr;
+
+    db.getRange(curR, 6, 1, 3).merge()
+      .setNumberFormat("@")
+      .setValue(formulaStr)
+      .setHorizontalAlignment("left").setVerticalAlignment("middle")
+      .setFontFamily("Consolas").setFontSize(8.5).setFontColor("#78281F").setWrap(true);
+
+    db.getRange(curR, 9, 1, 5).merge().setValue(row[3])
+      .setHorizontalAlignment("left").setVerticalAlignment("middle")
+      .setFontColor("#333").setWrap(true);
+
+    db.getRange(curR, 1, 1, 13).setBackground(idx % 2 === 0 ? "#FFFFFF" : "#F9FAFA")
+      .setBorder(true, true, true, true, null, null, "#EAEDED", SpreadsheetApp.BorderStyle.SOLID);
+    db.setRowHeight(curR, 28);
   });
 
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 80, 125, 95];
