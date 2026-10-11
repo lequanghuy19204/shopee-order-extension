@@ -11,6 +11,7 @@ function onOpen() {
       .addItem("📊 Tạo / Cập nhật Sheet Dashboard", "setupDashboard")
       .addItem("📅 Phân loại đơn vào các Sheet Tháng", "splitOrdersToMonthlySheets")
       .addItem("🔄 Sắp xếp đơn mới nhất", "sortByNewestCreated")
+      .addItem("🧹 Chuẩn hóa đơn Đã hủy (Tiền SP = 0 ₫)", "fixCancelledOrders")
       .addItem("🛠️ Thiết lập lại bảng DonHangShopee", "setupSheet")
       .addSeparator()
       .addItem("⚡ Cập nhật Code mới nhất từ GitHub", "forceUpdateCode")
@@ -96,6 +97,34 @@ function setupSheet() {
   } catch (e) {}
 }
 
+function fixCancelledOrders() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const masterSheet = ss.getSheetByName(SHEET_NAME);
+  if (!masterSheet || masterSheet.getLastRow() < 3) return;
+  const lastR = masterSheet.getLastRow();
+  const rowsData = masterSheet.getRange(3, 9, lastR - 2, 4).getValues(); // Cột I (9), J (10), K (11), L (12: Trạng thái)
+  let fixCount = 0;
+  for (let i = 0; i < rowsData.length; i++) {
+    const st = String(rowsData[i][3] || "").toLowerCase();
+    if (st.includes("hủy")) {
+      if (rowsData[i][0] !== 0 || rowsData[i][1] !== 0) {
+        rowsData[i][0] = 0; // Cột I: Tổng tiền sản phẩm = 0 ₫
+        rowsData[i][1] = 0; // Cột J: Doanh thu đơn hàng ước tính = 0 ₫
+        fixCount++;
+      }
+    }
+  }
+  if (fixCount > 0) {
+    masterSheet.getRange(3, 9, lastR - 2, 2).setValues(rowsData.map(r => [r[0], r[1]]));
+    syncMonthlySheetsFromMaster(ss);
+    SpreadsheetApp.flush();
+    try { setupDashboard(); } catch (e) {}
+    SpreadsheetApp.getUi().alert(`✅ Đã chuẩn hóa ${fixCount} đơn Đã hủy về Tổng tiền sản phẩm = 0 ₫ và Doanh thu = 0 ₫ trên DonHangShopee & các Sheet Tháng!`);
+  } else {
+    SpreadsheetApp.getUi().alert("ℹ️ Toàn bộ các đơn Đã hủy đã có Tổng tiền sản phẩm = 0 ₫ chuẩn xác!");
+  }
+}
+
 function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
   if (!sheet || !ordersList || ordersList.length === 0) return { created: 0, updated: 0, total: 0 };
   const values = sheet.getDataRange().getValues();
@@ -117,9 +146,14 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
     const sn = String(order.order_sn || order.ordersn || "").trim();
     if (!sn) continue;
 
-    const prodAmt = (order.product_amount !== undefined && order.product_amount !== "") ? Number(order.product_amount) : 0;
-    const escrowAmt = (order.escrow_amount !== undefined && order.escrow_amount !== "") ? Number(order.escrow_amount) : 0;
+    let prodAmt = (order.product_amount !== undefined && order.product_amount !== "") ? Number(order.product_amount) : 0;
+    let escrowAmt = (order.escrow_amount !== undefined && order.escrow_amount !== "") ? Number(order.escrow_amount) : 0;
     const buyerPaidAmt = (order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== "") ? Number(order.buyer_paid_amount) : 0;
+    const statusStr = String(order.order_status || "");
+    if (statusStr.toLowerCase().includes("hủy")) {
+      prodAmt = 0;
+      escrowAmt = 0;
+    }
 
     if (orderRowMap.has(sn)) {
       const idx = orderRowMap.get(sn);
@@ -481,6 +515,25 @@ function setupDashboard(adsData) {
 
   SpreadsheetApp.flush();
   const masterSheet = ss.getSheetByName(SHEET_NAME);
+  if (masterSheet && masterSheet.getLastRow() >= 3) {
+    const lastR = masterSheet.getLastRow();
+    const rowsData = masterSheet.getRange(3, 9, lastR - 2, 4).getValues(); // Cột I (9), J (10), K (11), L (12: Trạng thái)
+    let needFix = false;
+    for (let i = 0; i < rowsData.length; i++) {
+      const st = String(rowsData[i][3] || "").toLowerCase();
+      if (st.includes("hủy")) {
+        if (rowsData[i][0] !== 0 || rowsData[i][1] !== 0) {
+          rowsData[i][0] = 0; // Cột I: Tổng tiền sản phẩm = 0 ₫ cho đơn hủy
+          rowsData[i][1] = 0; // Cột J: Doanh thu đơn hàng ước tính = 0 ₫ cho đơn hủy
+          needFix = true;
+        }
+      }
+    }
+    if (needFix) {
+      masterSheet.getRange(3, 9, lastR - 2, 2).setValues(rowsData.map(r => [r[0], r[1]]));
+    }
+  }
+
   const monthMap = new Map();
   if (masterSheet && masterSheet.getLastRow() >= 3) {
     const dates = masterSheet.getRange(3, 1, masterSheet.getLastRow() - 2, 1).getValues();

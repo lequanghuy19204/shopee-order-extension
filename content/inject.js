@@ -100,16 +100,12 @@
       const calls = [
         fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${spcCds}&SPC_CDS_VER=2&order_id=${orderId}`, {
           method: "GET", credentials: "include"
+        }).then(r => r.json()).catch(() => null),
+        fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
+          body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
         }).then(r => r.json()).catch(() => null)
       ];
-      if (!isCancelled) {
-        calls.push(
-          fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-            body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
-          }).then(r => r.json()).catch(() => null)
-        );
-      }
 
       const [detailRes, incomeRes] = await Promise.all(calls);
 
@@ -127,9 +123,14 @@
         if (buyerPaid !== undefined) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
       }
 
-      if (product_amount === null && detailRes?.data?.order_items) {
-        const itemsSum = detailRes.data.order_items.reduce((s, it) => s + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
-        if (itemsSum > 0) product_amount = itemsSum;
+      if (isCancelled) {
+        product_amount = 0;
+        escrow_amount = 0;
+      } else {
+        if (product_amount === null && detailRes?.data?.order_items) {
+          const itemsSum = detailRes.data.order_items.reduce((s, it) => s + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+          if (itemsSum > 0) product_amount = itemsSum;
+        }
       }
       if (buyer_paid_amount === null && detailRes?.data?.total_price) {
         buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
@@ -170,7 +171,7 @@
       : cardBuyerPaid;
 
     // 2. Tổng tiền sản phẩm trực tiếp từ Shopee API
-    const product_amount = (extraInfo && extraInfo.product_amount !== null && extraInfo.product_amount !== undefined)
+    let product_amount = (extraInfo && extraInfo.product_amount !== null && extraInfo.product_amount !== undefined)
       ? extraInfo.product_amount
       : buyer_paid_amount;
 
@@ -178,6 +179,7 @@
     let escrow_amount = 0;
     if (order_status.toLowerCase().includes("hủy")) {
       escrow_amount = 0;
+      product_amount = 0;
     } else if (extraInfo && extraInfo.escrow_amount !== null && extraInfo.escrow_amount !== undefined) {
       escrow_amount = extraInfo.escrow_amount;
     } else {

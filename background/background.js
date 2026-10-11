@@ -96,15 +96,15 @@ async function fetchCardSn(item, spcCds) {
 
 async function fetchOrderDetailAndIncome(orderId, spcCds, isCancelled = false) {
   try {
-    const calls = [fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${spcCds}&SPC_CDS_VER=2&order_id=${orderId}`, {
-      method: "GET", credentials: "include"
-    }).then(r => r.json()).catch(() => null)];
-    if (!isCancelled) {
-      calls.push(fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
+    const calls = [
+      fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${spcCds}&SPC_CDS_VER=2&order_id=${orderId}`, {
+        method: "GET", credentials: "include"
+      }).then(r => r.json()).catch(() => null),
+      fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${spcCds}&SPC_CDS_VER=2`, {
         method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
         body: JSON.stringify({ order_id: Number(orderId), components: [2, 3] })
-      }).then(r => r.json()).catch(() => null));
-    }
+      }).then(r => r.json()).catch(() => null)
+    ];
     const [detailRes, incomeRes] = await Promise.all(calls);
     const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
     let product_amount = null, escrow_amount = isCancelled ? 0 : null, buyer_paid_amount = null;
@@ -117,9 +117,14 @@ async function fetchOrderDetailAndIncome(orderId, spcCds, isCancelled = false) {
       if (escrow !== undefined && escrow !== null) escrow_amount = Math.round(Number(escrow) / 100000);
       if (buyerPaid !== undefined && buyerPaid !== null) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
     }
-    if (product_amount === null && detailRes?.data?.order_items) {
-      const s = detailRes.data.order_items.reduce((acc, it) => acc + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
-      if (s > 0) product_amount = s;
+    if (isCancelled) {
+      product_amount = 0;
+      escrow_amount = 0;
+    } else {
+      if (product_amount === null && detailRes?.data?.order_items) {
+        const s = detailRes.data.order_items.reduce((acc, it) => acc + (Number(it.order_price || 0) * Number(it.amount || 1)), 0);
+        if (s > 0) product_amount = s;
+      }
     }
     if (buyer_paid_amount === null && detailRes?.data?.total_price) buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
     return { create_time, product_amount, escrow_amount, buyer_paid_amount };
@@ -166,15 +171,15 @@ async function fetchIncomeViaTab(ordersToFetch, targetTabId) {
               const isCancelled = typeof it === "object" ? it.isCancelled : false;
               try {
                 // Giữ nguyên API get_one_order theo yêu cầu người dùng
-                const calls = [fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${id}`, {
-                  method: "GET", credentials: "include"
-                }).then(r => r.json()).catch(() => null)];
-                if (!isCancelled) {
-                  calls.push(fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+                const calls = [
+                  fetch(`https://banhang.shopee.vn/api/v3/order/get_one_order?SPC_CDS=${cds}&SPC_CDS_VER=2&order_id=${id}`, {
+                    method: "GET", credentials: "include"
+                  }).then(r => r.json()).catch(() => null),
+                  fetch(`https://banhang.shopee.vn/api/v4/accounting/pc/seller_income/income_detail/get_order_income_components?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
                     method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
                     body: JSON.stringify({ order_id: Number(id), components: [2, 3] })
-                  }).then(r => r.json()).catch(() => null));
-                }
+                  }).then(r => r.json()).catch(() => null)
+                ];
                 const [detailRes, incomeRes] = await Promise.all(calls);
                 const create_time = detailRes?.code === 0 ? detailRes.data?.create_time : null;
                 let product_amount = null, escrow_amount = isCancelled ? 0 : null, buyer_paid_amount = null;
@@ -187,13 +192,18 @@ async function fetchIncomeViaTab(ordersToFetch, targetTabId) {
                   if (escrow !== undefined && escrow !== null) escrow_amount = Math.round(Number(escrow) / 100000);
                   if (buyerPaid !== undefined && buyerPaid !== null) buyer_paid_amount = Math.round(Number(buyerPaid) / 100000);
                 }
-                if (product_amount === null && detailRes?.data?.order_items) {
-                  const s = detailRes.data.order_items.reduce((acc, x) => acc + (Number(x.order_price || 0) * Number(x.amount || 1)), 0);
-                  if (s > 0) product_amount = s;
+                if (isCancelled) {
+                  product_amount = 0;
+                  escrow_amount = 0;
+                } else {
+                  if (product_amount === null && detailRes?.data?.order_items) {
+                    const s = detailRes.data.order_items.reduce((acc, x) => acc + (Number(x.order_price || 0) * Number(x.amount || 1)), 0);
+                    if (s > 0) product_amount = s;
+                  }
                 }
                 if (buyer_paid_amount === null && detailRes?.data?.total_price) buyer_paid_amount = Math.round(Number(detailRes.data.total_price));
                 return { order_id: id, create_time, product_amount, escrow_amount, buyer_paid_amount };
-              } catch (e) { return { order_id: id, escrow_amount: isCancelled ? 0 : null }; }
+              } catch (e) { return { order_id: id, escrow_amount: isCancelled ? 0 : null, product_amount: isCancelled ? 0 : null }; }
             }));
             results.push(...chunkRes);
             if (i + CHUNK < items.length) await new Promise(r => setTimeout(r, 20));
@@ -449,10 +459,11 @@ function formatShopeeOrderCard(card, extraInfo) {
 
   const rawPrice = card.payment_info?.total_price || 0;
   const buyer_paid_amount = (extraInfo?.buyer_paid_amount !== null && extraInfo?.buyer_paid_amount !== undefined) ? extraInfo.buyer_paid_amount : Math.round(Number(rawPrice) / 100000);
-  const product_amount = (extraInfo?.product_amount !== null && extraInfo?.product_amount !== undefined) ? extraInfo.product_amount : buyer_paid_amount;
+  let product_amount = (extraInfo?.product_amount !== null && extraInfo?.product_amount !== undefined) ? extraInfo.product_amount : buyer_paid_amount;
   let escrow_amount = 0;
   if (order_status.toLowerCase().includes("hủy")) {
     escrow_amount = 0;
+    product_amount = 0;
   } else if (extraInfo?.escrow_amount !== null && extraInfo?.escrow_amount !== undefined) {
     escrow_amount = extraInfo.escrow_amount;
   } else {
