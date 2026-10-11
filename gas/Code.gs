@@ -403,24 +403,41 @@ function setupDashboard(adsData) {
   const formProdTotal = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
   const formQtyTotal = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
 
+  const kpiNotes = [
+    "💰 DOANH THU ƯỚC TÍNH (VỀ VÍ):\n• Nguồn dữ liệu: Ô 'DonHangShopee'!J2 (=SUM toàn bộ cột J Doanh thu đơn hàng ước tính).\n• Ý nghĩa: Tổng số tiền thực nhận dự kiến Shopee chuyển về ví người bán sau khi trừ tất cả chi phí sàn, phí thanh toán, voucher trợ giá, hoa hồng tiếp thị...",
+    "📈 TỔNG TIỀN SẢN PHẨM:\n• Nguồn dữ liệu: Cột I (Tổng tiền sản phẩm) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tiền SP, Không hủy/hoàn) - SUMIFS(Tiền SP, Đã giao & Doanh thu < 0).\n• Ý nghĩa: Tổng giá trị hàng hóa niêm yết bán ra, ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy, Trả hàng/Hoàn tiền, và các đơn Đã giao nhưng có Doanh thu ước tính < 0 (khiếu nại bồi hoàn).",
+    "📦 TỔNG ĐƠN HÀNG:\n• Công thức: =COUNTA('DonHangShopee'!B3:B50000).\n• Ý nghĩa: Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (bao gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền).",
+    "👕 SẢN PHẨM ĐÃ BÁN:\n• Nguồn dữ liệu: Cột H (Tổng SL) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tổng SL, Không hủy/hoàn) - SUMIFS(Tổng SL, Đã giao & Doanh thu < 0).\n• Ý nghĩa: Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao, ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao có Doanh thu ước tính < 0.",
+    "🚨 TỶ LỆ HỦY ĐƠN:\n• Công thức: =IFERROR(COUNTIF('DonHangShopee'!L3:L50000, \"*hủy*\") / COUNTA('DonHangShopee'!B3:B50000), 0).\n• Ý nghĩa: Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."
+  ];
+
   [
     ["A3:B4","A3:B3","A4:B4","💰 DOANH THU ƯỚC TÍNH (VỀ VÍ)","='DonHangShopee'!J2","#D4EFDF","#145A32","#,##0 \"₫\""],
     ["C3:D4","C3:D3","C4:D4","📈 TỔNG TIỀN SẢN PHẨM",formProdTotal,"#D6EAF8","#1B4F72","#,##0 \"₫\""],
     ["E3:G4","E3:G3","E4:G4","📦 TỔNG ĐƠN HÀNG","=COUNTA('DonHangShopee'!B3:B50000)","#E8DAEF","#512E5F","#,##0"],
     ["I3:J4","I3:J3","I4:J4","👕 SẢN PHẨM ĐÃ BÁN",formQtyTotal,"#F2F4F4","#2C3E50","#,##0"],
     ["K3:M4","K3:M3","K4:M4","🚨 TỶ LỆ HỦY ĐƠN","=IFERROR(COUNTIF('DonHangShopee'!L3:L50000,\"*hủy*\")/COUNTA('DonHangShopee'!B3:B50000),0)","#FADBD8","#B03A2E","0.0%"]
-  ].forEach(([rng, top, val, title, form, bg, c, fmt]) => {
-    db.getRange(top).merge().setValue(title).setFontSize(9).setFontWeight("bold").setFontColor("#555").setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle");
-    db.getRange(val).merge().setFormula(form).setFontSize(15).setFontWeight("bold").setFontColor(c).setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat(fmt);
+  ].forEach(([rng, top, val, title, form, bg, c, fmt], i) => {
+    db.getRange(top).merge().setValue(title).setFontSize(9).setFontWeight("bold").setFontColor("#555").setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNote(kpiNotes[i]);
+    db.getRange(val).merge().setFormula(form).setFontSize(15).setFontWeight("bold").setFontColor(c).setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat(fmt).setNote(kpiNotes[i]);
     db.getRange(rng).setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
   });
   db.setRowHeight(3, 22); db.setRowHeight(4, 34); db.setRowHeight(5, 12);
 
   // 2. BẢNG 1 (BÊN TRÁI): 📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO NGÀY HIỆN TẠI
   db.getRange("A6:G6").merge().setValue("📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO NGÀY HIỆN TẠI")
-    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center")
+    .setNote("Bảng theo dõi số lượng đơn, doanh thu và tỷ suất hoàn vốn quảng cáo ROAS theo thời gian thực trong ngày hôm nay.");
   db.getRange("A7:G7").setValues([["Ngày", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "ROAS", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
+
+  db.getRange("A7").setNote("Ngày ghi nhận dữ liệu (mặc định lấy ngày hôm nay TODAY).");
+  db.getRange("B7").setNote("Số lượng đơn hàng phát sinh trong ngày:\n=COUNTIFS(Ngày tạo, '>=Hôm nay', Ngày tạo, '<Ngày mai')");
+  db.getRange("C7").setNote("Tổng số lượng sản phẩm bán được trong ngày hôm nay.\nĐÃ LOẠI TRỪ: Đơn hủy, trả hàng, hoàn tiền, doanh thu ước tính < 0.");
+  db.getRange("D7").setNote("Tổng tiền sản phẩm bán được trong ngày hôm nay.\nĐÃ LOẠI TRỪ: Đơn hủy, trả hàng, hoàn tiền, doanh thu ước tính < 0.");
+  db.getRange("E7").setNote("Tổng doanh thu thực nhận ước tính về ví Shopee của các đơn phát sinh trong ngày hôm nay.");
+  db.getRange("F7").setNote("Chỉ số hoàn vốn quảng cáo hôm nay:\nROAS = (Tiền sản phẩm D8) / (Chi phí DVHT hôm nay K22).\nĐo lường 1 đồng chi phí quảng cáo hôm nay tạo ra bao nhiêu đồng tiền sản phẩm.");
+  db.getRange("G7").setNote("Định danh mốc thời gian (Hôm nay).");
 
   const formQtyToday = `=SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formExcluded}) - SUMIFS('DonHangShopee'!$H$3:$H$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
   const formProdToday = `=SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), ${formExcluded}) - SUMIFS('DonHangShopee'!$I$3:$I$50000, 'DonHangShopee'!$A$3:$A$50000, ">="&TODAY(), 'DonHangShopee'!$A$3:$A$50000, "<"&(TODAY()+1), 'DonHangShopee'!$L$3:$L$50000, "*đã giao*", 'DonHangShopee'!$J$3:$J$50000, "<0")`;
@@ -434,19 +451,29 @@ function setupDashboard(adsData) {
     `=IFERROR(D8/$K$22, 0)`,
     `="Hôm nay"`
   ]]);
-  db.getRange("A8").setNumberFormat("dd/MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold");
-  db.getRange("B8:C8").setHorizontalAlignment("center").setNumberFormat("#,##0");
-  db.getRange("D8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-  db.getRange("E8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449");
-  db.getRange("F8").setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400");
+  db.getRange("A8").setNumberFormat("dd/MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold").setNote("Công thức: =TODAY()\nLấy ngày hiện tại theo thời gian thực.");
+  db.getRange("B8").setHorizontalAlignment("center").setNumberFormat("#,##0").setNote("Công thức: =COUNTIFS(Ngày tạo, '>=TODAY()', Ngày tạo, '<TODAY()+1')\nĐếm các đơn phát sinh từ 00:00 đến 23:59 hôm nay.");
+  db.getRange("C8").setHorizontalAlignment("center").setNumberFormat("#,##0").setNote("Công thức: =SUMIFS(Tổng SL hôm nay, Không hủy/hoàn) - SUMIFS(Tổng SL, Đã giao & Doanh thu < 0)\nSố lượng sản phẩm hợp lệ hôm nay.");
+  db.getRange("D8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setNote("Công thức: =SUMIFS(Tiền SP hôm nay, Không hủy/hoàn) - SUMIFS(Tiền SP, Đã giao & Doanh thu < 0)\nTiền sản phẩm hợp lệ hôm nay.");
+  db.getRange("E8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449").setNote("Công thức: =SUMIFS(Doanh thu ước tính, Ngày tạo hôm nay)\nTiền thực nhận dự kiến về ví Shopee hôm nay.");
+  db.getRange("F8").setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400").setNote("Công thức: =IFERROR(D8/$K$22, 0)\nLấy Tiền sản phẩm hôm nay (D8) chia cho Chi phí DVHT hôm nay (K22).");
   db.getRange("G8").setHorizontalAlignment("center").setFontColor("#555");
   db.setRowHeight(6, 24); db.setRowHeight(7, 26); db.setRowHeight(8, 26); db.setRowHeight(9, 10);
 
   // 3. BẢNG 2 (BÊN TRÁI): 📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO THÁNG
   db.getRange("A10:G10").merge().setValue("📅 THỐNG KÊ DOANH SỐ & TÀI CHÍNH THEO THÁNG")
-    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center")
+    .setNote("Bảng theo dõi doanh số, số lượng sản phẩm bán ra và tỷ suất hoàn vốn ROAS chi tiết theo từng tháng.");
   db.getRange("A11:G11").setValues([["Tháng/Năm", "Số đơn", "Tổng SL", "Tiền sản phẩm", "Doanh thu ước tính", "ROAS", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
+
+  db.getRange("A11").setNote("Tháng/Năm phát sinh đơn hàng, tự động tổng hợp từ cột Ngày tạo của DonHangShopee.");
+  db.getRange("B11").setNote("Số lượng đơn hàng phát sinh trong tháng:\n=COUNTIFS(Ngày tạo, '>=Đầu tháng', Ngày tạo, '<Đầu tháng sau')");
+  db.getRange("C11").setNote("Tổng số lượng sản phẩm bán ra trong tháng.\nĐÃ LOẠI TRỪ: Đơn hủy, trả hàng, hoàn tiền, doanh thu ước tính < 0.");
+  db.getRange("D11").setNote("Tổng tiền sản phẩm bán ra trong tháng.\nĐÃ LOẠI TRỪ: Đơn hủy, trả hàng, hoàn tiền, doanh thu ước tính < 0.");
+  db.getRange("E11").setNote("Tổng doanh thu thực nhận ước tính về ví Shopee của tất cả các đơn trong tháng.");
+  db.getRange("F11").setNote("Chỉ số ROAS của tháng = (Tiền sản phẩm tháng đó) / (Chi phí DVHT của chính tháng đó ở bảng bên phải).\nĐo lường 1 đồng quảng cáo tháng đó đem lại bao nhiêu đồng tiền sản phẩm.");
+  db.getRange("G11").setNote("Tên định danh tháng tương ứng.");
 
   SpreadsheetApp.flush();
   const masterSheet = ss.getSheetByName(SHEET_NAME);
@@ -498,21 +525,39 @@ function setupDashboard(adsData) {
   db.getRange(`F12:F${endRow}`).setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400");
   db.getRange(`G12:G${endRow}`).setHorizontalAlignment("center").setFontColor("#555");
 
+  for (let i = 0; i < N; i++) {
+    const r = 12 + i, mDate = sortedMonths[i], adsR = 24 + i;
+    db.getRange(`A${r}`).setNote(`Tháng ${mDate.getMonth() + 1}/${mDate.getFullYear()}: Ngày bắt đầu tháng =DATE(${mDate.getFullYear()}, ${mDate.getMonth() + 1}, 1)`);
+    db.getRange(`B${r}`).setNote(`Số đơn Tháng ${mDate.getMonth() + 1}: =COUNTIFS(Ngày tạo, '>=A${r}', Ngày tạo, '<EDATE(A${r},1)')`);
+    db.getRange(`C${r}`).setNote(`Tổng SL sản phẩm bán Tháng ${mDate.getMonth() + 1} (Đã trừ triệt để đơn hoàn/hủy).`);
+    db.getRange(`D${r}`).setNote(`Tổng tiền sản phẩm Tháng ${mDate.getMonth() + 1} (Đã trừ triệt để đơn hoàn/hủy).`);
+    db.getRange(`E${r}`).setNote(`Tổng doanh thu về ví Tháng ${mDate.getMonth() + 1}: =SUMIFS(Doanh thu, Ngày tạo trong Tháng ${mDate.getMonth() + 1})`);
+    db.getRange(`F${r}`).setNote(`ROAS Tháng ${mDate.getMonth() + 1}: =IFERROR(D${r}/J${adsR}, 0)\nLấy Tiền sản phẩm Tháng ${mDate.getMonth() + 1} (D${r}) chia Chi phí DVHT Tháng ${mDate.getMonth() + 1} (J${adsR}).`);
+  }
+
   const totR = 12 + N;
   db.getRange(`A${totR}:G${totR}`).setFormulas([["=0", `=SUM(B12:B${endRow})`, `=SUM(C12:C${endRow})`, `=SUM(D12:D${endRow})`, `=SUM(E12:E${endRow})`, `=IFERROR(D${totR}/$L$22, 0)`, `="Toàn kỳ"`]])
     .setFontWeight("bold").setBackground("#EAEDED").setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
-  db.getRange(`A${totR}`).setValue(N > 1 ? `⭐ TỔNG CỘNG (${N} THÁNG)` : "⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B");
+  db.getRange(`A${totR}`).setValue(N > 1 ? `⭐ TỔNG CỘNG (${N} THÁNG)` : "⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B").setNote("Tổng cộng toàn bộ các tháng được chọn đồng bộ.");
   db.getRange(`B${totR}:C${totR}`).setHorizontalAlignment("center").setNumberFormat("#,##0");
+  db.getRange(`B${totR}`).setNote(`Công thức: =SUM(B12:B${endRow})\nTổng số đơn hàng của toàn kỳ.`);
+  db.getRange(`C${totR}`).setNote(`Công thức: =SUM(C12:C${endRow})\nTổng số lượng sản phẩm bán ra của toàn kỳ.`);
   db.getRange(`D${totR}:E${totR}`).setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"");
-  db.getRange(`E${totR}`).setFontColor("#1E8449");
-  db.getRange(`F${totR}`).setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400");
+  db.getRange(`D${totR}`).setNote(`Công thức: =SUM(D12:D${endRow})\nTổng tiền sản phẩm của toàn kỳ.`);
+  db.getRange(`E${totR}`).setFontColor("#1E8449").setNote(`Công thức: =SUM(E12:E${endRow})\nTổng doanh thu về ví của toàn kỳ.`);
+  db.getRange(`F${totR}`).setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400").setNote(`Công thức: =IFERROR(D${totR}/$L$22, 0)\nROAS Toàn kỳ = Lấy Tổng tiền sản phẩm toàn kỳ (D${totR}) chia cho Tổng chi phí DVHT toàn kỳ (L22).`);
   db.getRange(`G${totR}`).setHorizontalAlignment("center");
 
   // 4. BẢNG 3 (BÊN PHẢI): 📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG
   db.getRange("I6:M6").merge().setValue("📋 PHÂN LOẠI THEO TRẠNG THÁI ĐƠN HÀNG")
-    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+    .setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center")
+    .setNote("Phân loại đơn hàng theo chu trình vận hành và trạng thái thanh toán trên Shopee.");
   db.getRange("I7:M7").setValues([["Trạng thái đơn", "Số đơn", "Tỷ lệ", "Doanh thu ước tính", "Ghi chú"]])
     .setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
+  db.getRange("I7").setNote("Nhóm trạng thái đơn hàng.");
+  db.getRange("J7").setNote("Số lượng đơn hàng thuộc nhóm trạng thái.");
+  db.getRange("K7").setNote("Tỷ lệ % = Số đơn trạng thái / Tổng đơn hàng ($E$4).");
+  db.getRange("L7").setNote("Tổng doanh thu ước tính về ví của các đơn thuộc trạng thái này.");
 
   const statuses = [
     ["🟢 Đã giao / Hoàn thành", "=COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\")", "=IFERROR(J8/$E$4, 0)", "=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \">=0\") + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*nhận được hàng*\", 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn thành*\", 'DonHangShopee'!$J$3:$J$50000)", "Đã vào ví"],
@@ -521,10 +566,18 @@ function setupDashboard(adsData) {
     ["🔴 Đã hủy đơn", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hủy*\")", "=IFERROR(J11/$E$4, 0)", "=0", "Đơn bị hủy"],
     ["🟣 Trả hàng / Hoàn tiền", "=COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*trả hàng*\") + COUNTIF('DonHangShopee'!$L$3:$L$50000, \"*hoàn*\") + COUNTIFS('DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")", "=IFERROR(J12/$E$4, 0)", "=SUMIFS('DonHangShopee'!$J$3:$J$50000, 'DonHangShopee'!$L$3:$L$50000, \"Đã giao\", 'DonHangShopee'!$J$3:$J$50000, \"<0\")", "Khiếu nại/Hoàn"]
   ];
+  const statusNotes = [
+    "🟢 Đã giao / Hoàn thành:\nĐơn giao thành công, khách đã nhận hàng và tiền đã vào ví (có Doanh thu ước tính >= 0).",
+    "🟡 Chờ xử lý / Lấy hàng:\nĐơn mới phát sinh hoặc người bán đang chuẩn bị hàng chờ shipper đến lấy.",
+    "🔵 Đang vận chuyển:\nĐơn đã bàn giao cho Đơn vị vận chuyển và đang trên đường giao tới người mua.",
+    "🔴 Đã hủy đơn:\nĐơn bị người mua, người bán hoặc Shopee hủy. Doanh thu về ví = 0 ₫.",
+    "🟣 Trả hàng / Hoàn tiền:\nBao gồm các đơn có trạng thái Khiếu nại/Trả hàng/Hoàn tiền VÀ các đơn Đã giao nhưng có Doanh thu ước tính < 0 (tiền về ví âm do bồi hoàn)."
+  ];
   statuses.forEach((row, i) => {
     const r = 8 + i;
     db.getRange(`I${r}:M${r}`).setValues([[row[0], "", "", "", row[4]]]);
     db.getRange(`J${r}`).setFormula(row[1]); db.getRange(`K${r}`).setFormula(row[2]); db.getRange(`L${r}`).setFormula(row[3]);
+    db.getRange(`I${r}:M${r}`).setNote(statusNotes[i]);
   });
   db.getRange("J8:K12").setHorizontalAlignment("center");
   db.getRange("J8:J12").setNumberFormat("#,##0");
@@ -533,8 +586,13 @@ function setupDashboard(adsData) {
   db.getRange("M8:M12").setHorizontalAlignment("center");
 
   // 5. BẢNG 4 (BÊN PHẢI): 🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN
-  db.getRange("I14:M14").merge().setValue("🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
+  db.getRange("I14:M14").merge().setValue("🚚 ĐỐI SOÁT ĐƠN VỊ VẬN CHUYỂN").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center")
+    .setNote("Theo dõi phân bổ đơn hàng và doanh thu theo từng đối tác vận chuyển.");
   db.getRange("I15:M15").setValues([["ĐVVC", "Số đơn", "Tỷ lệ", "Doanh thu ước tính", "Đánh giá"]]).setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setHorizontalAlignment("center");
+  db.getRange("I15").setNote("Tên đơn vị vận chuyển.");
+  db.getRange("J15").setNote("Số đơn hàng gửi qua ĐVVC.");
+  db.getRange("K15").setNote("Tỷ lệ % thị phần vận chuyển = Số đơn ĐVVC / Tổng đơn hàng ($E$4).");
+  db.getRange("L15").setNote("Tổng doanh thu về ví do ĐVVC này phụ trách giao.");
 
   [
     ["SPX Express", "=COUNTIF('DonHangShopee'!D3:D50000, \"*SPX*\")", "=IFERROR(J16/$E$4, 0)", "=SUMIF('DonHangShopee'!D3:D50000, \"*SPX*\", 'DonHangShopee'!J3:J50000)", "Chính"],
@@ -552,30 +610,38 @@ function setupDashboard(adsData) {
   db.getRange("M16:M18").setHorizontalAlignment("center");
 
   // 6. KHỐI 5 (BÊN PHẢI): 📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE) - BỔ SUNG CHI PHÍ THEO THÁNG
-  db.getRange("I20:M20").merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center");
-  db.getRange("I21:J21").merge().setValue("💰 SỐ DƯ TÀI KHOẢN").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center");
-  db.getRange("I22:J22").merge().setValue(savedBalance).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("I20:M20").merge().setValue("📢 DỊCH VỤ HIỂN THỊ (QUẢNG CÁO SHOPEE)").setBackground("#2C3E50").setFontColor("#FFF").setFontWeight("bold").setFontSize(10.5).setHorizontalAlignment("center")
+    .setNote("Số liệu quảng cáo Shopee Ads tự động cập nhật từ API Ví (wallet/get) và Báo cáo Shopee (get_time_graph).");
+  db.getRange("I21:J21").merge().setValue("💰 SỐ DƯ TÀI KHOẢN").setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(9).setHorizontalAlignment("center")
+    .setNote("Số dư khả dụng hiện tại trong ví Dịch vụ hiển thị (Shopee Ads). Nguồn: API pas/v1/wallet/get.");
+  db.getRange("I22:J22").merge().setValue(savedBalance).setBackground("#E8F8F5").setFontColor("#117A65").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"")
+    .setNote("Số dư khả dụng hiện tại trong ví Shopee Ads.");
   db.getRange("I21:J22").setBorder(true, true, true, true, null, null, "#A3E4D7", SpreadsheetApp.BorderStyle.SOLID);
 
-  db.getRange("K21").setValue("🔥 CHI PHÍ HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
-  db.getRange("K22").setValue(savedExpToday).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("K21").setValue("🔥 CHI PHÍ HÔM NAY").setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true)
+    .setNote("Chi phí quảng cáo Shopee Ads đã tiêu từ 00:00 đến thời điểm hiện tại của ngày hôm nay. Nguồn: API pas/v1/wallet/get.");
+  db.getRange("K22").setValue(savedExpToday).setBackground("#FDEDEC").setFontColor("#922B21").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"")
+    .setNote("Chi phí quảng cáo Shopee Ads đã tiêu trong ngày hôm nay.");
   db.getRange("K21:K22").setBorder(true, true, true, true, null, null, "#F5B7B1", SpreadsheetApp.BorderStyle.SOLID);
 
-  db.getRange("L21").setValue("⚡ TỔNG CHI PHÍ THÁNG").setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
-  db.getRange("L22").setFormula(`=J${adsTotR}`).setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"");
+  db.getRange("L21").setValue("⚡ TỔNG CHI PHÍ THÁNG").setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true)
+    .setNote(`Tổng chi phí quảng cáo Shopee Ads của tất cả các tháng được đồng bộ. Bằng ô J ở dòng tổng cộng bên dưới: =J${adsTotR}.`);
+  db.getRange("L22").setFormula(`=J${adsTotR}`).setBackground("#FEF9E7").setFontColor("#B7950B").setFontWeight("bold").setFontSize(13).setHorizontalAlignment("center").setNumberFormat("#,##0 \"₫\"")
+    .setNote(`Công thức: =J${adsTotR}\nTổng chi phí quảng cáo Shopee Ads của tất cả các tháng được đồng bộ.`);
   db.getRange("L21:L22").setBorder(true, true, true, true, null, null, "#F9E79F", SpreadsheetApp.BorderStyle.SOLID);
 
-  db.getRange("M21").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true);
+  db.getRange("M21").setValue("🕒 CẬP NHẬT").setBackground("#EAEDED").setFontColor("#555").setFontWeight("bold").setFontSize(8.5).setHorizontalAlignment("center").setWrap(true)
+    .setNote("Thời gian mới nhất hệ thống đồng bộ số liệu Shopee Ads.");
   db.getRange("M22").setValue(savedAdsDate).setBackground("#EAEDED").setFontColor("#333").setFontSize(9).setHorizontalAlignment("center").setNumberFormat("dd/MM HH:mm");
   db.getRange("M21:M22").setBorder(true, true, true, true, null, null, "#BDC3C7", SpreadsheetApp.BorderStyle.SOLID);
 
   // Bảng chi tiết chi phí Quảng cáo theo từng tháng (Rows 23+)
   db.getRange("I23:M23").setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setFontSize(9.5).setHorizontalAlignment("center");
   db.getRange("J23:K23").merge();
-  db.getRange("I23").setValue("Tháng/Năm");
-  db.getRange("J23").setValue("Chi phí DVHT");
-  db.getRange("L23").setValue("Doanh thu Ads");
-  db.getRange("M23").setValue("ROAS Shopee");
+  db.getRange("I23").setValue("Tháng/Năm").setNote("Tháng đối soát quảng cáo Shopee Ads.");
+  db.getRange("J23").setValue("Chi phí DVHT").setNote("Chi phí quảng cáo thực tế của tháng đó (Lấy từ API report/get_time_graph).");
+  db.getRange("L23").setValue("Doanh thu Ads").setNote("Doanh thu mang lại từ quảng cáo Shopee Ads (Broad GMV) trong tháng.");
+  db.getRange("M23").setValue("ROAS Shopee").setNote("Chỉ số hoàn vốn quảng cáo do Shopee báo cáo (Broad ROI) = Doanh thu Ads / Chi phí Ads.");
 
   const adsMap = new Map();
   if (savedMonthlyAds && Array.isArray(savedMonthlyAds)) {
@@ -595,12 +661,16 @@ function setupDashboard(adsData) {
 
     db.getRange(`I${rowIdx}:M${rowIdx}`).setBackground("#FFF");
     db.getRange(`I${rowIdx}`).setFormula(`="Tháng " & TEXT(A${12 + i}, "MM/yyyy")`).setHorizontalAlignment("center").setFontWeight("bold").setFontSize(9.5);
-    db.getRange(`J${rowIdx}:K${rowIdx}`).merge().setValue(mCost).setHorizontalAlignment("right").setFontWeight("bold").setFontColor("#922B21").setNumberFormat('#,##0 "₫"');
-    db.getRange(`L${rowIdx}`).setValue(mGmv).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"');
+    db.getRange(`J${rowIdx}:K${rowIdx}`).merge().setValue(mCost).setHorizontalAlignment("right").setFontWeight("bold").setFontColor("#922B21").setNumberFormat('#,##0 "₫"')
+      .setNote(`Chi phí DVHT Tháng ${mDate.getMonth() + 1}/${mDate.getFullYear()}: Lấy từ báo cáo get_time_graph.`);
+    db.getRange(`L${rowIdx}`).setValue(mGmv).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"')
+      .setNote(`Doanh thu mang lại từ Ads Tháng ${mDate.getMonth() + 1}: Broad GMV.`);
     if (mRoas > 0) {
-      db.getRange(`M${rowIdx}`).setValue(mRoas).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#D35400").setNumberFormat("#,##0.00");
+      db.getRange(`M${rowIdx}`).setValue(mRoas).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#D35400").setNumberFormat("#,##0.00")
+        .setNote(`Chỉ số Broad ROI trả về trực tiếp từ thuật toán Shopee Ads Tháng ${mDate.getMonth() + 1}.`);
     } else {
-      db.getRange(`M${rowIdx}`).setFormula(`=IFERROR(L${rowIdx}/J${rowIdx}, 0)`).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#D35400").setNumberFormat("#,##0.00");
+      db.getRange(`M${rowIdx}`).setFormula(`=IFERROR(L${rowIdx}/J${rowIdx}, 0)`).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#D35400").setNumberFormat("#,##0.00")
+        .setNote(`Công thức: =IFERROR(L${rowIdx}/J${rowIdx}, 0)\nDoanh thu Ads chia Chi phí Ads.`);
     }
     db.getRange(`I${rowIdx}:M${rowIdx}`).setBorder(true, true, true, true, null, null, "#D5D8DC", SpreadsheetApp.BorderStyle.SOLID);
     db.setRowHeight(rowIdx, 24);
@@ -609,11 +679,59 @@ function setupDashboard(adsData) {
   // Dòng Tổng chi phí Ads (Row adsTotR = 24 + N)
   db.getRange(`I${adsTotR}:M${adsTotR}`).setBackground("#EAEDED").setFontWeight("bold");
   db.getRange(`I${adsTotR}`).setValue(N > 1 ? `⭐ TỔNG CHI PHÍ (${N}T)` : "⭐ TỔNG CHI PHÍ").setHorizontalAlignment("center").setFontColor("#C0392B");
-  db.getRange(`J${adsTotR}:K${adsTotR}`).merge().setFormula(`=SUM(J24:J${23 + N})`).setHorizontalAlignment("right").setFontColor("#922B21").setNumberFormat('#,##0 "₫"');
-  db.getRange(`L${adsTotR}`).setFormula(`=SUM(L24:L${23 + N})`).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"');
-  db.getRange(`M${adsTotR}`).setFormula(`=IFERROR(L${adsTotR}/J${adsTotR}, 0)`).setHorizontalAlignment("center").setFontColor("#D35400").setNumberFormat("#,##0.00");
+  db.getRange(`J${adsTotR}:K${adsTotR}`).merge().setFormula(`=SUM(J24:J${23 + N})`).setHorizontalAlignment("right").setFontColor("#922B21").setNumberFormat('#,##0 "₫"')
+    .setNote(`Công thức: =SUM(J24:J${23 + N})\nTổng chi phí quảng cáo của ${N} tháng đồng bộ.`);
+  db.getRange(`L${adsTotR}`).setFormula(`=SUM(L24:L${23 + N})`).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"')
+    .setNote(`Công thức: =SUM(L24:L${23 + N})\nTổng doanh thu mang lại từ quảng cáo của toàn kỳ.`);
+  db.getRange(`M${adsTotR}`).setFormula(`=IFERROR(L${adsTotR}/J${adsTotR}, 0)`).setHorizontalAlignment("center").setFontColor("#D35400").setNumberFormat("#,##0.00")
+    .setNote(`Công thức: =IFERROR(L${adsTotR}/J${adsTotR}, 0)\nROAS Shopee Ads toàn kỳ = Tổng Doanh thu Ads / Tổng Chi phí Ads.`);
   db.getRange(`I${adsTotR}:M${adsTotR}`).setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
   db.setRowHeight(adsTotR, 26);
+
+  // 7. BẢNG HƯỚNG DẪN & CHÚ THÍCH CÔNG THỨC CHI TIẾT TỔNG THỂ (DƯỚI CÙNG DASHBOARD)
+  const guideRow = Math.max(totR, adsTotR) + 2;
+  db.getRange(guideRow, 1, 1, 13).merge()
+    .setValue("📖 BẢNG GIẢI THÍCH CHI TIẾT CÔNG THỨC & NGUỒN DỮ LIỆU DASHBOARD")
+    .setBackground("#1B2631").setFontColor("#FFF").setFontWeight("bold").setFontSize(11)
+    .setHorizontalAlignment("center").setVerticalAlignment("middle");
+  db.setRowHeight(guideRow, 32);
+
+  const gHeadRow = guideRow + 1;
+  db.getRange(gHeadRow, 1, 1, 2).merge().setValue("Nhóm chỉ số");
+  db.getRange(gHeadRow, 3, 1, 2).merge().setValue("Chỉ số / Vị trí");
+  db.getRange(gHeadRow, 5, 1, 3).merge().setValue("Công thức tính toán");
+  db.getRange(gHeadRow, 8, 1, 6).merge().setValue("Ý nghĩa nghiệp vụ & Nguồn dữ liệu");
+  db.getRange(gHeadRow, 1, 1, 13).setBackground("#34495E").setFontColor("#FFF").setFontWeight("bold").setFontSize(9.5).setHorizontalAlignment("center").setVerticalAlignment("middle");
+  db.setRowHeight(gHeadRow, 26);
+
+  const guideItems = [
+    ["KPI Tổng quan", "Doanh thu ước tính (A4)", "='DonHangShopee'!J2", "Tổng số tiền thực nhận dự kiến về ví Shopee sau khi trừ các khoản phí sàn, voucher, hoa hồng tiếp thị..."],
+    ["KPI Tổng quan", "Tổng tiền sản phẩm (C4)", "=SUMIFS(Tiền SP, Không hủy/hoàn) - SUMIFS(Tiền SP, Đã giao & Doanh thu < 0)", "Tổng giá trị hàng hóa niêm yết bán ra. ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao nhưng có Doanh thu < 0 (khiếu nại bồi hoàn)."],
+    ["KPI Tổng quan", "Tổng đơn hàng (E4)", "=COUNTA('DonHangShopee'!B3:B50000)", "Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền)."],
+    ["KPI Tổng quan", "Sản phẩm đã bán (I4)", "=SUMIFS(Tổng SL, Không hủy/hoàn) - SUMIFS(Tổng SL, Đã giao & Doanh thu < 0)", "Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao. ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy, Trả hàng/Hoàn tiền, và đơn Đã giao có Doanh thu < 0."],
+    ["KPI Tổng quan", "Tỷ lệ hủy đơn (K4)", "=COUNTIF(L:L, \"*hủy*\") / COUNTA(B:B)", "Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."],
+    ["Thống kê Ngày", "Số đơn hôm nay (B8)", "=COUNTIFS(Ngày tạo, '>=TODAY()', Ngày tạo, '<TODAY()+1')", "Số đơn hàng phát sinh từ 00:00:00 đến 23:59:59 của ngày hôm nay."],
+    ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(Tiền SP hôm nay, Không hủy/hoàn) trừ đơn doanh thu < 0", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy, trả hàng, khiếu nại)."],
+    ["Thống kê Ngày", "Doanh thu về ví hôm nay (E8)", "=SUMIFS(Doanh thu ước tính, Ngày tạo hôm nay)", "Tổng số tiền thực nhận dự kiến về ví Shopee từ các đơn phát sinh trong ngày hôm nay."],
+    ["Thống kê Ngày", "ROAS Ngày hôm nay (F8)", "=IFERROR(D8/$K$22, 0)", "Hiệu quả hoàn vốn quảng cáo hôm nay = Tiền sản phẩm hôm nay (D8) chia Chi phí Shopee Ads hôm nay (K22)."],
+    ["Thống kê Tháng", "Doanh số theo tháng (A12:E...)", "=COUNTIFS(...) & SUMIFS(...) theo từng tháng từ ngày 1 đến ngày cuối tháng", "Số đơn, số lượng sản phẩm và doanh thu từng tháng. Tiền sản phẩm và Tổng SL đã tự động loại bỏ hoàn/hủy."],
+    ["Thống kê Tháng", "ROAS theo từng tháng (F12:F...)", "=IFERROR(Tiền sản phẩm tháng / Chi phí DVHT tháng đó, 0)", "Hiệu quả quảng cáo từng tháng = Tiền sản phẩm tháng đó chia đúng cho Chi phí Ads của tháng đó ở bảng bên phải."],
+    ["Thống kê Tháng", "ROAS Toàn kỳ (F dòng tổng cộng)", "=IFERROR(Tổng tiền sản phẩm toàn kỳ / $L$22, 0)", "ROAS tổng hợp = Tổng tiền sản phẩm tất cả các tháng chia cho Tổng chi phí Ads toàn kỳ (ô L22)."],
+    ["Trạng thái đơn", "Trả hàng / Hoàn tiền (I12:L12)", "=COUNTIF(\"trả/hoàn\") + COUNTIFS(\"Đã giao\", Doanh thu < 0)", "Bao gồm đơn có trạng thái Trả hàng/Hoàn tiền VÀ đơn Đã giao nhưng có Doanh thu < 0 (tiền về ví âm do bồi hoàn/khiếu nại)."],
+    ["Đơn vị vận chuyển", "Đối soát ĐVVC (I16:M18)", "=COUNTIF & SUMIF theo cột ĐVVC (D:D)", "Số đơn, tỷ lệ % thị phần giao hàng và doanh thu về ví do từng đơn vị vận chuyển phụ trách."],
+    ["Quảng cáo Ads", "Số dư ví & Chi phí hôm nay (I22 & K22)", "Lấy trực tiếp từ API Ví Dịch vụ hiển thị (wallet/get)", "Số dư khả dụng hiện tại trong ví Ads và chi phí quảng cáo đã chi tiêu trong ngày hôm nay."],
+    ["Quảng cáo Ads", "Chi phí Ads theo từng tháng (J24:J...)", "Lấy từ API Báo cáo Shopee Ads (report/get_time_graph)", "Chi phí quảng cáo thực tế, GMV và ROI do thuật toán Shopee Ads ghi nhận độc lập cho từng tháng."]
+  ];
+
+  guideItems.forEach((row, idx) => {
+    const curR = gHeadRow + 1 + idx;
+    db.getRange(curR, 1, 1, 2).merge().setValue(row[0]).setHorizontalAlignment("center").setFontWeight("bold").setFontColor("#2C3E50");
+    db.getRange(curR, 3, 1, 2).merge().setValue(row[1]).setHorizontalAlignment("left").setFontWeight("bold").setFontColor("#1B4F72");
+    db.getRange(curR, 5, 1, 3).merge().setValue(row[2]).setHorizontalAlignment("left").setFontFamily("Consolas").setFontSize(8.5).setFontColor("#78281F");
+    db.getRange(curR, 8, 1, 6).merge().setValue(row[3]).setHorizontalAlignment("left").setFontColor("#333").setWrap(true);
+    db.getRange(curR, 1, 1, 13).setBackground(idx % 2 === 0 ? "#FFFFFF" : "#F9FAFA").setBorder(true, true, true, true, null, null, "#EAEDED", SpreadsheetApp.BorderStyle.SOLID);
+    db.setRowHeight(curR, 26);
+  });
 
   const colWidths = [65, 65, 75, 75, 120, 110, 130, 16, 175, 75, 80, 125, 95];
   colWidths.forEach((w, i) => db.setColumnWidth(i + 1, w));
