@@ -1,5 +1,5 @@
 /**
- * GOOGLE APPS SCRIPT QUẢN LÝ ĐƠN HÀNG & QUẢNG CÁO SHOPEE (v2.12)
+ * GOOGLE APPS SCRIPT QUẢN LÝ ĐƠN HÀNG & QUẢNG CÁO SHOPEE (v2.13)
  * - Tự động đồng bộ 14 cột sang DonHangShopee và các Sheet Tháng
  * - Dashboard: Thống kê KPI, Doanh số 6 tháng, Trạng thái đơn, ĐVVC, Ví Dịch vụ hiển thị (PAS)
  */
@@ -529,7 +529,7 @@ function setupDashboard(adsData) {
     formProdToday,
     `=SUMIFS('DonHangShopee'!$J$3:$J$50000${sep} 'DonHangShopee'!$A$3:$A$50000${sep} ">="&TODAY()${sep} 'DonHangShopee'!$A$3:$A$50000${sep} "<"&(TODAY()+1))`,
     `=IFERROR(D8/$L$22${sep} 0)`,
-    `=E8 - $L$22 - (D8 * 0.32) - (E8 * 0.2)`,
+    `=IFERROR(E8 - $L$22 - (D8 * 32%) - (E8 * 20%)${sep} 0)`,
     `="Hôm nay"`
   ]]);
   db.getRange("A8").setNumberFormat("dd/MM/yyyy").setHorizontalAlignment("center").setFontWeight("bold").setNote("Công thức: =TODAY()\nLấy ngày hiện tại theo thời gian thực.");
@@ -538,7 +538,7 @@ function setupDashboard(adsData) {
   db.getRange("D8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setNote("Công thức: =SUMIFS(Tiền SP hôm nay, Không hủy, Doanh thu >= 0)\nTiền sản phẩm hợp lệ hôm nay.");
   db.getRange("E8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#1E8449").setNote("Công thức: =SUMIFS(Doanh thu ước tính, Ngày tạo hôm nay)\nTiền thực nhận dự kiến về ví Shopee hôm nay.");
   db.getRange("F8").setHorizontalAlignment("center").setNumberFormat("#,##0.00").setFontWeight("bold").setFontColor("#D35400").setNote("Công thức: =IFERROR(D8/$L$22, 0)\nLấy Tiền sản phẩm hôm nay (D8) chia cho Chi phí DVHT hôm nay (L22).");
-  db.getRange("G8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#27AE60").setNote("Công thức: =E8 - $L$22 - (D8 * 0.32) - (E8 * 0.2)\nLãi ước tính hôm nay = Doanh thu ước tính (E8) - Chi phí DVHT hôm nay (L22) - (Tổng tiền sản phẩm D8 * 32% giá vốn ước tính) - (Doanh thu ước tính E8 * 20%).");
+  db.getRange("G8").setHorizontalAlignment("right").setNumberFormat("#,##0 \"₫\"").setFontWeight("bold").setFontColor("#27AE60").setNote(`Công thức: =IFERROR(E8 - $L$22 - (D8 * 32%) - (E8 * 20%)${sep} 0)\nLãi ước tính hôm nay = Doanh thu ước tính (E8) - Chi phí DVHT hôm nay (L22) - (Tổng tiền sản phẩm D8 * 32% giá vốn ước tính) - (Doanh thu ước tính E8 * 20%).`);
   db.getRange("H8").setHorizontalAlignment("center").setFontColor("#555");
   db.setRowHeight(6, 24); db.setRowHeight(7, 26); db.setRowHeight(8, 26); db.setRowHeight(9, 10);
 
@@ -616,7 +616,7 @@ function setupDashboard(adsData) {
       formProdMonth,
       `=SUMIFS('DonHangShopee'!$J$3:$J$50000${sep} 'DonHangShopee'!$A$3:$A$50000${sep} ">="&A${r}${sep} 'DonHangShopee'!$A$3:$A$50000${sep} "<"&EDATE(A${r}${sep} 1))`,
       `=IFERROR(D${r}/K${adsR}${sep} 0)`,
-      `=E${r} - K${adsR} - (D${r} * 0.32) - (E${r} * 0.2)`,
+      `=IFERROR(E${r} - K${adsR} - (D${r} * 32%) - (E${r} * 20%)${sep} 0)`,
       `="Tháng " & (${mDate.getMonth() + 1})`
     ]);
   }
@@ -638,7 +638,7 @@ function setupDashboard(adsData) {
     db.getRange(`D${r}`).setNote(`Tổng tiền sản phẩm Tháng ${mDate.getMonth() + 1} (Đã trừ triệt để đơn hoàn/hủy).`);
     db.getRange(`E${r}`).setNote(`Tổng doanh thu về ví Tháng ${mDate.getMonth() + 1}: =SUMIFS(Doanh thu, Ngày tạo trong Tháng ${mDate.getMonth() + 1})`);
     db.getRange(`F${r}`).setNote(`ROAS Tháng ${mDate.getMonth() + 1}: =IFERROR(D${r}/K${adsR}, 0)\nLấy Tiền sản phẩm Tháng ${mDate.getMonth() + 1} (D${r}) chia Chi phí DVHT Tháng ${mDate.getMonth() + 1} (K${adsR}).`);
-    db.getRange(`G${r}`).setNote(`Lãi ước tính Tháng ${mDate.getMonth() + 1}: =E${r} - K${adsR} - (D${r} * 0.32) - (E${r} * 0.2)\nLấy Doanh thu ước tính (E${r}) trừ Chi phí DVHT tháng (K${adsR}) trừ Giá vốn ước tính (32% của Tiền sản phẩm D${r}) trừ (Doanh thu ước tính E${r} * 20%).`);
+    db.getRange(`G${r}`).setNote(`Lãi ước tính Tháng ${mDate.getMonth() + 1}: =IFERROR(E${r} - K${adsR} - (D${r} * 32%) - (E${r} * 20%)${sep} 0)\nLấy Doanh thu ước tính (E${r}) trừ Chi phí DVHT tháng (K${adsR}) trừ Giá vốn ước tính (32% của Tiền sản phẩm D${r}) trừ (Doanh thu ước tính E${r} * 20%).`);
   }
 
   const totR = 12 + N;
@@ -907,10 +907,10 @@ function setupDashboard(adsData) {
     ["Thống kê Ngày", "Tiền sản phẩm hôm nay (D8)", "=SUMIFS(I:I, Hôm nay, Không hủy, Doanh thu >= 0)", "Tổng tiền sản phẩm bán được trong ngày hôm nay (đã loại bỏ đơn hủy và đơn bồi hoàn hoàn tiền)."],
     ["Thống kê Ngày", "Doanh thu về ví hôm nay (E8)", `=SUMIFS(J:J${sep} A:A${sep} ">=TODAY()"${sep} A:A${sep} "<TODAY()+1")`, "Tổng số tiền thực nhận dự kiến về ví Shopee từ các đơn phát sinh trong ngày hôm nay."],
     ["Thống kê Ngày", "ROAS Ngày hôm nay (F8)", `=IFERROR(D8/$L$22${sep} 0)`, "Hiệu quả hoàn vốn quảng cáo hôm nay = Tiền sản phẩm hôm nay (D8) chia Chi phí Shopee Ads hôm nay (L22)."],
-    ["Thống kê Ngày", "Lãi ước tính hôm nay (G8)", "=E8 - $L$22 - (D8 * 0.32) - (E8 * 0.2)", "Lợi nhuận ước tính hôm nay = Doanh thu về ví (E8) - Chi phí Shopee Ads hôm nay (L22) - (Tiền sản phẩm D8 * 32% chi phí vốn hàng bán ước tính) - (Doanh thu về ví E8 * 20%)."],
+    ["Thống kê Ngày", "Lãi ước tính hôm nay (G8)", `=IFERROR(E8 - $L$22 - (D8 * 32%) - (E8 * 20%)${sep} 0)`, "Lợi nhuận ước tính hôm nay = Doanh thu về ví (E8) - Chi phí Shopee Ads hôm nay (L22) - (Tiền sản phẩm D8 * 32% chi phí vốn hàng bán ước tính) - (Doanh thu về ví E8 * 20%)."],
     ["Thống kê Tháng", "Doanh số theo tháng (A12:E...)", "=COUNTIFS & SUMIFS theo từng khoảng ngày của tháng", "Số đơn, số lượng sản phẩm và doanh thu từng tháng. Số đơn, Tiền sản phẩm và Tổng SL đã tự động loại bỏ đơn hủy và đơn bồi hoàn âm tiền."],
     ["Thống kê Tháng", "ROAS theo từng tháng (F12:F...)", "=IFERROR(Tiền sản phẩm tháng / Chi phí Ads tháng, 0)", "Hiệu quả quảng cáo từng tháng = Tiền sản phẩm tháng đó chia đúng cho Chi phí Ads của tháng đó ở bảng bên phải."],
-    ["Thống kê Tháng", "Lãi ước tính theo tháng (G12:G...)", "=Doanh thu về ví tháng - Chi phí Ads tháng - (Tiền sản phẩm tháng * 32%) - (Doanh thu tháng * 20%)", "Lợi nhuận ước tính từng tháng = Doanh thu ước tính (E) - Chi phí DVHT của tháng đó (K) - (Tiền sản phẩm D * 32% giá vốn hàng bán) - (Doanh thu ước tính E * 20%). Dòng tổng cộng = SUM(G12:G...)."],
+    ["Thống kê Tháng", "Lãi ước tính theo tháng (G12:G...)", `=IFERROR(Doanh thu về ví - Chi phí Ads - (Tiền sản phẩm * 32%) - (Doanh thu * 20%)${sep} 0)`, "Lợi nhuận ước tính từng tháng = Doanh thu ước tính (E) - Chi phí DVHT của tháng đó (K) - (Tiền sản phẩm D * 32% giá vốn hàng bán) - (Doanh thu ước tính E * 20%). Dòng tổng cộng = SUM(G12:G...)."],
     ["Thống kê Tháng", "ROAS Toàn kỳ (F dòng tổng cộng)", `=IFERROR(Tổng tiền sản phẩm toàn kỳ / $M$22${sep} 0)`, "ROAS tổng hợp = Tổng tiền sản phẩm tất cả các tháng chia cho Tổng chi phí Ads toàn kỳ (ô M22)."],
     ["Trạng thái đơn", "Phân loại trạng thái (J8:P12)", "COUNT & SUM theo cột Trạng thái đơn (L:L) & Doanh thu (J:J)", "Thống kê chi tiết Số đơn, Tỷ lệ %, Tổng SL sản phẩm, Tiền sản phẩm và Doanh thu về ví theo từng nhóm trạng thái chu trình Shopee."],
     ["Trạng thái đơn", "Trả hàng / Hoàn tiền (J12:P12)", `=COUNTIFS(J:J${sep} "<0") + COUNTIFS("trả/hoàn")`, "Bao gồm đơn có trạng thái Trả hàng/Hoàn tiền VÀ đơn Đã giao nhưng có Doanh thu < 0 (tiền về ví âm do bồi hoàn/khiếu nại)."],
