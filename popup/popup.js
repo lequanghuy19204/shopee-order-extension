@@ -4,7 +4,7 @@
  * - Tự động đồng bộ theo chu kỳ DD:HH:MM:SS (tối thiểu 30 giây) với đồng hồ đếm ngược trực tiếp
  */
 
-document.addEventListener("DOMContentLoaded", async () => {
+async function initPopup() {
   const webhookInput = document.getElementById("webhookUrl");
   const sheetInput = document.getElementById("sheetUrl");
   const btnSave = document.getElementById("btnSave");
@@ -695,4 +695,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Tự động kiểm tra bản mới ngầm khi mở popup
   setTimeout(() => checkExtensionUpdate(false), 800);
-});
+}
+
+// Khởi chạy an toàn: Không bị phụ thuộc hay bỏ lỡ sự kiện DOMContentLoaded
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", initPopup);
+} else {
+  initPopup();
+}
