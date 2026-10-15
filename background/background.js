@@ -245,8 +245,8 @@ function getMonthTimestampRanges(monthsCount) {
     const startObj = new Date(year, month, 1, 0, 0, 0, 0);
     let endObj;
     if (i === 0) {
-      // Tháng hiện tại: lấy đến thời điểm hiện tại (tránh lỗi Shopee API từ chối nếu end_time trong tương lai 23:59:59)
-      endObj = new Date();
+      // Tháng hiện tại: lấy từ 00:00:00 ngày đầu tháng đến 23:59:59 của ngày hôm nay (khung ngày chuẩn để Shopee API trả về đủ số liệu)
+      endObj = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
     } else {
       endObj = new Date(year, month + 1, 0, 23, 59, 59, 999);
     }
@@ -426,7 +426,7 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
   }
   const isMissingData = result.ads_balance === null || result.ads_expense_today === null ||
     !result.monthly_ads || result.monthly_ads.length === 0 ||
-    result.monthly_ads.some(m => !m.cost);
+    result.monthly_ads.some(m => !m.cost || !m.gmv);
 
   if (isMissingData) {
     let tabId = targetTabId;
@@ -446,10 +446,10 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
             const tabMap = new Map(tabData.monthly_ads.map(m => [m.month_key, m]));
             result.monthly_ads.forEach(m => {
               const fromTab = tabMap.get(m.month_key);
-              if (fromTab && (!m.cost || fromTab.cost > 0)) {
-                m.cost = fromTab.cost;
-                m.gmv = fromTab.gmv;
-                m.roas = fromTab.roas;
+              if (fromTab) {
+                if (fromTab.cost > 0) m.cost = fromTab.cost;
+                if (fromTab.gmv > 0) m.gmv = fromTab.gmv;
+                if (fromTab.roas > 0) m.roas = fromTab.roas;
               }
             });
             tabData.monthly_ads.forEach(tm => {

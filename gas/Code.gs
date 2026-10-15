@@ -440,14 +440,26 @@ function setupDashboard(adsData) {
         adsData.monthly_ads.forEach(newM => {
           if (newM && newM.month_key) {
             const oldM = existingMap.get(newM.month_key);
-            if (Number(newM.cost) > 0 || !oldM) {
+            if (!oldM) {
               existingMap.set(newM.month_key, newM);
-            } else if (oldM && Number(oldM.cost) > 0) {
+            } else {
+              // Hợp nhất dữ liệu thông minh: Không bao giờ hạ thấp số liệu hoặc ghi đè số > 0 bằng 0
+              const newCost = Number(newM.cost) || 0;
+              const oldCost = Number(oldM.cost) || 0;
+              const newGmv = Number(newM.gmv) || 0;
+              const oldGmv = Number(oldM.gmv) || 0;
+              const newRoas = Number(newM.roas) || 0;
+              const oldRoas = Number(oldM.roas) || 0;
+
+              const cost = Math.max(newCost, oldCost);
+              const gmv = Math.max(newGmv, oldGmv);
+              const roas = newRoas > 0 ? newRoas : (oldRoas > 0 ? oldRoas : (cost > 0 ? gmv / cost : 0));
+
               existingMap.set(newM.month_key, {
                 ...newM,
-                cost: oldM.cost,
-                gmv: Number(newM.gmv) > 0 ? newM.gmv : (oldM.gmv || 0),
-                roas: Number(newM.roas) > 0 ? newM.roas : (oldM.roas || 0)
+                cost,
+                gmv,
+                roas
               });
             }
           }
