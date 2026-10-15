@@ -263,10 +263,17 @@ function handleShopeePost(e) {
     else if (data.order_sn) ordersList = [data];
 
     if (data.action === "force_update_code" || data.force_refresh_code || data.action === "setup_dashboard" || data.refresh_dashboard) {
-      try { setupDashboard(data); } catch (e) { Logger.log("Lỗi setupDashboard: " + e.toString()); }
-      return ContentService.createTextOutput(JSON.stringify({
-        success: true, message: "🎉 Đã cập nhật Code.gs mới nhất từ GitHub và làm mới Dashboard thành công!"
-      })).setMimeType(ContentService.MimeType.JSON);
+      try {
+        setupDashboard(data);
+        return ContentService.createTextOutput(JSON.stringify({
+          success: true, message: "🎉 Đã cập nhật Code.gs mới nhất từ GitHub và làm mới Dashboard thành công!"
+        })).setMimeType(ContentService.MimeType.JSON);
+      } catch (e) {
+        Logger.log("Lỗi setupDashboard: " + e.toString());
+        return ContentService.createTextOutput(JSON.stringify({
+          success: false, error: "Lỗi setupDashboard: " + e.toString()
+        })).setMimeType(ContentService.MimeType.JSON);
+      }
     }
 
     if (ordersList.length === 0) {
@@ -503,6 +510,15 @@ function setupDashboard(adsData) {
   } else {
     try { ss.setActiveSheet(db); } catch (e) {}
   }
+
+  // BẮT BUỘC: Hủy hợp nhất (breakApart) toàn bộ các ô đã merge từ lần chạy trước!
+  // Tránh lỗi văng Exception "Cannot merge cells that are already merged" khi số tháng N thay đổi làm vị trí các bảng bị dịch chuyển đè lên ô merge cũ
+  try {
+    db.getDataRange().breakApart();
+  } catch (e) {}
+  try {
+    db.getRange(1, 1, Math.max(db.getMaxRows(), 100), Math.max(db.getMaxColumns(), 20)).breakApart();
+  } catch (e) {}
   db.clear();
   try {
     db.getRange(1, 1, db.getMaxRows(), db.getMaxColumns()).clearNote();
@@ -621,18 +637,57 @@ function setupDashboard(adsData) {
   }
 
   const monthMap = new Map();
+  // 1. Quét danh sách tháng từ cột Ngày tạo trong DonHangShopee
   if (masterSheet && masterSheet.getLastRow() >= 3) {
     const dates = masterSheet.getRange(3, 1, masterSheet.getLastRow() - 2, 1).getValues();
     dates.forEach(r => {
-      if (r[0]) {
-        const d = parseOrderDate(r[0]);
-        if (!isNaN(d.getTime())) {
+      const val = r[0];
+      if (val && !String(val).toUpperCase().includes("TỔNG")) {
+        const d = parseOrderDate(val);
+        if (d && !isNaN(d.getTime())) {
           const key = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0");
           if (!monthMap.has(key)) monthMap.set(key, new Date(d.getFullYear(), d.getMonth(), 1));
         }
       }
     });
   }
+
+  // 2. Bổ sung các tháng có trong dữ liệu Quảng cáo Shopee Ads (savedMonthlyAds)
+  if (savedMonthlyAds && Array.isArray(savedMonthlyAds)) {
+    savedMonthlyAds.forEach(item => {
+      if (item && item.month_key) {
+        if (!monthMap.has(item.month_key)) {
+          const parts = String(item.month_key).split("-");
+          if (parts.length === 2) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10);
+            if (!isNaN(y) && !isNaN(m) && y > 2000 && m >= 1 && m <= 12) {
+              monthMap.set(item.month_key, new Date(y, m - 1, 1));
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // 3. Bổ sung từ các sheet tháng đã có trong file (Tháng 1, Tháng 2, ...)
+  try {
+    ss.getSheets().forEach(s => {
+      const name = s.getName().trim();
+      const match = name.match(/^Tháng\s+(\d+)$/i);
+      if (match) {
+        const mNum = parseInt(match[1], 10);
+        if (mNum >= 1 && mNum <= 12) {
+          const curY = new Date().getFullYear();
+          const key = `${curY}-${String(mNum).padStart(2, "0")}`;
+          if (!monthMap.has(key)) {
+            monthMap.set(key, new Date(curY, mNum - 1, 1));
+          }
+        }
+      }
+    });
+  } catch (e) {}
+
   if (monthMap.size === 0) {
     const now = new Date();
     monthMap.set(now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0"), new Date(now.getFullYear(), now.getMonth(), 1));
@@ -900,7 +955,7 @@ function setupDashboard(adsData) {
     }
 
     db.getRange(`J${rowIdx}:P${rowIdx}`).setBackground("#FFF");
-    db.getRange(`J${rowIdx}`).setFormula(`="Tháng " & TEXT(A${12 + i}${sep} "MM/yyyy")`).setHorizontalAlignment("center").setFontWeight("bold").setFontSize(9.5);
+    db.getRange(`J${rowIdx}`).setValue(`Tháng ${mDate.getMonth() + 1}/${mDate.getFullYear()}`).setHorizontalAlignment("center").setFontWeight("bold").setFontSize(9.5);
     db.getRange(`K${rowIdx}:L${rowIdx}`).merge().setValue(mCost).setHorizontalAlignment("right").setFontWeight("bold").setFontColor("#922B21").setNumberFormat('#,##0 "₫"')
       .setNote(`Chi phí DVHT Tháng ${mDate.getMonth() + 1}/${mDate.getFullYear()}: Lấy từ báo cáo get_time_graph.`);
     db.getRange(`M${rowIdx}:N${rowIdx}`).merge().setValue(mGmv).setHorizontalAlignment("right").setNumberFormat('#,##0 "₫"')

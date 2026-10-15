@@ -792,7 +792,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
 
     // 2. Tính timestamp theo TỪNG THÁNG và lấy chi phí Shopee Ads độc lập cho mỗi tháng
     broadcastProgress(totalOrdersSynced, targetTotal, `Đang lấy chi phí Quảng cáo (Ads) cho ${monthsCount} tháng...`, "Quảng cáo Ads", syncMode, monthsCount);
-    const monthRanges = getMonthTimestampRanges(syncMode === "months" ? monthsCount : 6);
+    const monthRanges = getMonthTimestampRanges(syncMode === "months" ? Math.max(1, Number(monthsCount) || 1) : 12);
     const adsInfo = await fetchAdsPerformanceInfo(spcCds, monthRanges, activeTabId);
 
     // 3. Kích hoạt cập nhật hoàn chỉnh Dashboard với đầy đủ chi phí theo từng tháng
