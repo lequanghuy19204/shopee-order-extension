@@ -421,7 +421,31 @@ function setupDashboard(adsData) {
         props.setProperty("SHOPEE_ADS_TODAY", String(adsData.ads_expense_today));
       }
       if (adsData.monthly_ads && Array.isArray(adsData.monthly_ads) && adsData.monthly_ads.length > 0) {
-        props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(adsData.monthly_ads));
+        // Merge thông minh với dữ liệu đã lưu để bảo toàn chi phí tháng cũ, không bị xóa đè thành 0 khi lần sau API ads trả về 0
+        const existingMap = new Map();
+        const oldJson = props.getProperty("SHOPEE_MONTHLY_ADS");
+        if (oldJson) {
+          try {
+            const arr = JSON.parse(oldJson);
+            if (Array.isArray(arr)) arr.forEach(m => { if (m && m.month_key) existingMap.set(m.month_key, m); });
+          } catch (e) {}
+        }
+        adsData.monthly_ads.forEach(newM => {
+          if (newM && newM.month_key) {
+            const oldM = existingMap.get(newM.month_key);
+            if (Number(newM.cost) > 0 || !oldM) {
+              existingMap.set(newM.month_key, newM);
+            } else if (oldM && Number(oldM.cost) > 0) {
+              existingMap.set(newM.month_key, {
+                ...newM,
+                cost: oldM.cost,
+                gmv: Number(newM.gmv) > 0 ? newM.gmv : (oldM.gmv || 0),
+                roas: Number(newM.roas) > 0 ? newM.roas : (oldM.roas || 0)
+              });
+            }
+          }
+        });
+        props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(Array.from(existingMap.values())));
       }
       props.setProperty("SHOPEE_ADS_DATE", new Date().toISOString());
     } catch (e) {}
@@ -442,7 +466,7 @@ function setupDashboard(adsData) {
     try { savedMonthlyAds = JSON.parse(mAdsJson); } catch (e) {}
   }
 
-  // Fallback nếu trong properties chưa có: đọc từ các ô hiện tại trước khi clear
+  // Fallback nếu trong properties chưa có: đọc từ các ô hiện tại của Dashboard trước khi clear
   if (db && db.getLastRow() >= 22) {
     try {
       if (!savedBalance) {
@@ -452,6 +476,23 @@ function setupDashboard(adsData) {
       if (!savedExpToday) {
         const fToday = db.createTextFinder("CHI PHÍ HÔM NAY").matchEntireCell(false).findNext();
         if (fToday) savedExpToday = Number(db.getRange(fToday.getRow() + 1, fToday.getColumn()).getValue()) || 0;
+      }
+      if (savedMonthlyAds.length === 0 && db.getLastRow() >= 24) {
+        const lastR = db.getLastRow();
+        for (let r = 24; r <= lastR; r++) {
+          const mText = String(db.getRange(`J${r}`).getValue() || "");
+          const costVal = Number(db.getRange(`K${r}`).getValue()) || 0;
+          const gmvVal = Number(db.getRange(`M${r}`).getValue()) || 0;
+          const roasVal = Number(db.getRange(`O${r}`).getValue()) || 0;
+          const match = mText.match(/(\d{1,2})\/(\d{4})/);
+          if (match && costVal > 0) {
+            const mKey = `${match[2]}-${String(match[1]).padStart(2, "0")}`;
+            savedMonthlyAds.push({ month_key: mKey, cost: costVal, gmv: gmvVal, roas: roasVal });
+          }
+        }
+        if (savedMonthlyAds.length > 0) {
+          props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(savedMonthlyAds));
+        }
       }
     } catch (e) {}
   }
@@ -841,14 +882,22 @@ function setupDashboard(adsData) {
     });
   }
 
+  const nowCur = new Date();
+  const curMonthKey = `${nowCur.getFullYear()}-${String(nowCur.getMonth() + 1).padStart(2, "0")}`;
+
   for (let i = 0; i < N; i++) {
     const rowIdx = 24 + i;
     const mDate = sortedMonths[i];
     const mKey = `${mDate.getFullYear()}-${String(mDate.getMonth() + 1).padStart(2, "0")}`;
     const adsItem = adsMap.get(mKey);
-    const mCost = adsItem ? Number(adsItem.cost || 0) : 0;
+    let mCost = adsItem ? Number(adsItem.cost || 0) : 0;
     const mGmv = adsItem ? Number(adsItem.gmv || 0) : 0;
     const mRoas = adsItem && adsItem.roas ? Number(adsItem.roas) : 0;
+
+    // Đối với tháng hiện tại: Chi phí tháng tối thiểu phải bằng chi phí hôm nay (vì hôm nay thuộc tháng này)
+    if (mKey === curMonthKey && savedExpToday > 0 && mCost < savedExpToday) {
+      mCost = savedExpToday;
+    }
 
     db.getRange(`J${rowIdx}:P${rowIdx}`).setBackground("#FFF");
     db.getRange(`J${rowIdx}`).setFormula(`="Tháng " & TEXT(A${12 + i}${sep} "MM/yyyy")`).setHorizontalAlignment("center").setFontWeight("bold").setFontSize(9.5);

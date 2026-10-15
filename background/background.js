@@ -245,7 +245,8 @@ function getMonthTimestampRanges(monthsCount) {
     const startObj = new Date(year, month, 1, 0, 0, 0, 0);
     let endObj;
     if (i === 0) {
-      endObj = new Date(year, month, now.getDate(), 23, 59, 59, 999);
+      // Tháng hiện tại: lấy đến thời điểm hiện tại (tránh lỗi Shopee API từ chối nếu end_time trong tương lai 23:59:59)
+      endObj = new Date();
     } else {
       endObj = new Date(year, month + 1, 0, 23, 59, 59, 999);
     }
@@ -263,14 +264,14 @@ function getMonthTimestampRanges(monthsCount) {
   return ranges;
 }
 
-async function fetchAdsDataViaTab(targetTabId, monthRanges) {
+async function fetchAdsDataViaTab(targetTabId, monthRanges, spcCds) {
   try {
     const results = await chrome.scripting.executeScript({
       target: { tabId: targetTabId },
-      func: async (ranges) => {
+      func: async (ranges, passedCds) => {
         try {
           const match = document.cookie.match(/SPC_CDS=([^;]+)/);
-          const cds = match ? match[1] : "c621ebd7-5719-4be0-a244-06d8a82c0854";
+          const cds = passedCds || (match ? match[1] : "");
           let ads_balance = null, ads_expense_today = null;
 
           let wRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
@@ -331,7 +332,7 @@ async function fetchAdsDataViaTab(targetTabId, monthRanges) {
           return null;
         }
       },
-      args: [monthRanges]
+      args: [monthRanges, spcCds]
     });
     return results?.[0]?.result || null;
   } catch (e) {
@@ -426,7 +427,7 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
       if (tabs?.length > 0) tabId = tabs[0].id;
     }
     if (tabId) {
-      const tabData = await fetchAdsDataViaTab(tabId, monthRanges);
+      const tabData = await fetchAdsDataViaTab(tabId, monthRanges, cds);
       if (tabData) {
         if (result.ads_balance === null && tabData.ads_balance !== null) result.ads_balance = tabData.ads_balance;
         if (result.ads_expense_today === null && tabData.ads_expense_today !== null) result.ads_expense_today = tabData.ads_expense_today;
@@ -436,6 +437,19 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
         }
       }
     }
+  }
+
+  // 4. Bảo toàn logic: Chi phí quảng cáo tháng hiện tại tối thiểu phải >= Chi phí hôm nay (vì hôm nay thuộc tháng này)
+  const currentKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  if (result.monthly_ads && Array.isArray(result.monthly_ads)) {
+    result.monthly_ads.forEach(m => {
+      if (m && m.month_key === currentKey && result.ads_expense_today > 0) {
+        if (!m.cost || m.cost < result.ads_expense_today) {
+          m.cost = result.ads_expense_today;
+        }
+      }
+    });
+    result.ads_expense_month = result.monthly_ads.reduce((s, m) => s + (m.cost || 0), 0);
   }
 
   return result;
@@ -952,13 +966,12 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
           if (e !== null && e !== undefined) payload.escrow_amount = e;
           if (b !== null && b !== undefined) payload.buyer_paid_amount = b;
         }
-        const now = new Date();
-        const sDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
-        const eDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
-        const adsInfo = await fetchAdsPerformanceInfo(spcCds, Math.floor(sDate.getTime() / 1000), Math.floor(eDate.getTime() / 1000), sender.tab?.id);
+        const monthRanges = getMonthTimestampRanges(1);
+        const adsInfo = await fetchAdsPerformanceInfo(spcCds, monthRanges, sender.tab?.id);
         if (adsInfo.ads_balance !== null) payload.ads_balance = adsInfo.ads_balance;
         if (adsInfo.ads_expense_today !== null) payload.ads_expense_today = adsInfo.ads_expense_today;
         if (adsInfo.ads_expense_month !== null) payload.ads_expense_month = adsInfo.ads_expense_month;
+        if (adsInfo.monthly_ads && adsInfo.monthly_ads.length > 0) payload.monthly_ads = adsInfo.monthly_ads;
         sendResponse(await postToGoogleSheet(payload, req.webhookUrl));
       } catch (e) { sendResponse({ success: false, message: e.toString() }); }
     })();
