@@ -348,8 +348,9 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
     monthly_ads: []
   };
 
+  let cds = spcCds;
   try {
-    const cds = spcCds || (await getSpcCds());
+    if (!cds) cds = await getSpcCds();
 
     // 1. Lấy số dư ví & chi phí hôm nay từ wallet/get (hỗ trợ cả POST và GET)
     let walletRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/wallet/get/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
@@ -419,8 +420,15 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
     }
   } catch (e) {}
 
-  // 3. Fallback: Nếu fetch trong Service Worker thiếu dữ liệu hoặc cost trống, gọi executeScript trong ngữ cảnh Tab Shopee
-  if (result.ads_balance === null || result.ads_expense_today === null || result.monthly_ads.length === 0 || result.monthly_ads.every(m => !m.cost)) {
+  // 3. Fallback: Nếu fetch trong Service Worker thiếu dữ liệu hoặc có tháng chi phí trống, gọi executeScript trong ngữ cảnh Tab Shopee
+  if (!cds) {
+    try { cds = await getSpcCds(); } catch (e) {}
+  }
+  const isMissingData = result.ads_balance === null || result.ads_expense_today === null ||
+    !result.monthly_ads || result.monthly_ads.length === 0 ||
+    result.monthly_ads.some(m => !m.cost);
+
+  if (isMissingData) {
     let tabId = targetTabId;
     if (!tabId) {
       const tabs = await chrome.tabs.query({ url: "*://banhang.shopee.vn/*" }).catch(() => []);
@@ -432,8 +440,25 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
         if (result.ads_balance === null && tabData.ads_balance !== null) result.ads_balance = tabData.ads_balance;
         if (result.ads_expense_today === null && tabData.ads_expense_today !== null) result.ads_expense_today = tabData.ads_expense_today;
         if (tabData.monthly_ads && tabData.monthly_ads.length > 0) {
-          result.monthly_ads = tabData.monthly_ads;
-          result.ads_expense_month = tabData.ads_expense_month;
+          if (!result.monthly_ads || result.monthly_ads.length === 0) {
+            result.monthly_ads = tabData.monthly_ads;
+          } else {
+            const tabMap = new Map(tabData.monthly_ads.map(m => [m.month_key, m]));
+            result.monthly_ads.forEach(m => {
+              const fromTab = tabMap.get(m.month_key);
+              if (fromTab && (!m.cost || fromTab.cost > 0)) {
+                m.cost = fromTab.cost;
+                m.gmv = fromTab.gmv;
+                m.roas = fromTab.roas;
+              }
+            });
+            tabData.monthly_ads.forEach(tm => {
+              if (!result.monthly_ads.some(m => m.month_key === tm.month_key)) {
+                result.monthly_ads.push(tm);
+              }
+            });
+          }
+          result.ads_expense_month = result.monthly_ads.reduce((s, m) => s + (m.cost || 0), 0);
         }
       }
     }
