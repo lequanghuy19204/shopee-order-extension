@@ -824,6 +824,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
     broadcastProgress(totalOrdersSynced, targetTotal, `Đang cập nhật bảng Live Dashboard...`, "Cập nhật Dashboard", syncMode, monthsCount);
     const finalSheetResult = await postToGoogleSheet({
       action: "setup_dashboard",
+      force_refresh_code: true,
       ads_balance: adsInfo.ads_balance,
       ads_expense_today: adsInfo.ads_expense_today,
       ads_expense_month: adsInfo.ads_expense_month,
