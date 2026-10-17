@@ -1,3 +1,5 @@
+importScripts("/lib/fflate.min.js");
+
 let isSyncingInProgress = false;
 let syncCancelRequested = false;
 
@@ -293,29 +295,36 @@ async function fetchAdsDataViaTab(targetTabId, monthRanges, spcCds) {
           const monthly_ads = [];
           if (ranges && Array.isArray(ranges)) {
             for (const rng of ranges) {
-              const rRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                  agg_interval: 12,
-                  campaign_type: "product_homepage_v2",
-                  start_time: rng.start_time,
-                  end_time: rng.end_time,
-                  need_roi_target_setting: false,
-                  filter_params: {
-                    campaign_type: "new_cpc_homepage"
-                  }
-                })
-              }).then(r => r.json()).catch(() => null);
-
               let cost = 0, gmv = 0, roas = 0;
-              if (rRes?.code === 0 && rRes.data?.report_aggregate) {
-                const agg = rRes.data.report_aggregate;
-                if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
-                if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
-                if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
+              for (let attempt = 1; attempt <= 2; attempt++) {
+                try {
+                  const rRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({
+                      agg_interval: 12,
+                      campaign_type: "product_homepage_v2",
+                      start_time: rng.start_time,
+                      end_time: rng.end_time,
+                      need_roi_target_setting: false,
+                      filter_params: {
+                        campaign_type: "new_cpc_homepage"
+                      }
+                    })
+                  }).then(r => r.json()).catch(() => null);
+
+                  if (rRes?.code === 0 && rRes.data?.report_aggregate) {
+                    const agg = rRes.data.report_aggregate;
+                    if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
+                    if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
+                    if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
+                    break;
+                  }
+                } catch (e) {}
+                if (attempt < 2) await new Promise(r => setTimeout(r, 120));
               }
+
               monthly_ads.push({
                 month_key: rng.month_key,
                 month_name: rng.month_name,
@@ -323,6 +332,7 @@ async function fetchAdsDataViaTab(targetTabId, monthRanges, spcCds) {
                 month: rng.month,
                 cost, gmv, roas
               });
+              await new Promise(r => setTimeout(r, 40));
             }
           }
 
@@ -370,63 +380,64 @@ async function fetchAdsPerformanceInfo(spcCds, monthRanges, targetTabId) {
       if (e !== undefined && e !== null) result.ads_expense_today = Math.round(Number(e) / 100000);
     }
 
-    // 2. Lấy chi phí theo TỪNG THÁNG từ báo cáo get_time_graph (đã trace chính xác qua browser-skill)
+    // 2. Lấy chi phí theo TỪNG THÁNG từ báo cáo get_time_graph (tuần tự + retry để tránh bị Shopee bóp băng thông)
     if (monthRanges && Array.isArray(monthRanges) && monthRanges.length > 0) {
-      const adsPromises = monthRanges.map(async (rng) => {
-        try {
-          const reportRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              agg_interval: 12,
-              campaign_type: "product_homepage_v2",
-              start_time: rng.start_time,
-              end_time: rng.end_time,
-              need_roi_target_setting: false,
-              filter_params: {
-                campaign_type: "new_cpc_homepage"
-              }
-            })
-          }).then(r => r.json()).catch(() => null);
+      const monthlyList = [];
+      for (const rng of monthRanges) {
+        let cost = 0, gmv = 0, roas = 0;
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            const reportRes = await fetch(`https://banhang.shopee.vn/api/pas/v1/report/get_time_graph/?SPC_CDS=${cds}&SPC_CDS_VER=2`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                agg_interval: 12,
+                campaign_type: "product_homepage_v2",
+                start_time: rng.start_time,
+                end_time: rng.end_time,
+                need_roi_target_setting: false,
+                filter_params: {
+                  campaign_type: "new_cpc_homepage"
+                }
+              })
+            }).then(r => r.json()).catch(() => null);
 
-          let cost = 0, gmv = 0, roas = 0;
-          if (reportRes?.code === 0 && reportRes.data?.report_aggregate) {
-            const agg = reportRes.data.report_aggregate;
-            if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
-            if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
-            if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
-          }
-          return {
-            month_key: rng.month_key,
-            month_name: rng.month_name,
-            year: rng.year,
-            month: rng.month,
-            cost, gmv, roas
-          };
-        } catch (err) {
-          return {
-            month_key: rng.month_key,
-            month_name: rng.month_name,
-            year: rng.year,
-            month: rng.month,
-            cost: 0, gmv: 0, roas: 0
-          };
+            if (reportRes?.code === 0 && reportRes.data?.report_aggregate) {
+              const agg = reportRes.data.report_aggregate;
+              if (agg.cost !== undefined && agg.cost !== null) cost = Math.round(Number(agg.cost) / 100000);
+              if (agg.broad_gmv !== undefined && agg.broad_gmv !== null) gmv = Math.round(Number(agg.broad_gmv) / 100000);
+              if (agg.broad_roi !== undefined && agg.broad_roi !== null) roas = Number(agg.broad_roi);
+              break;
+            }
+          } catch (err) {}
+          if (attempt < 2) await new Promise(r => setTimeout(r, 120));
         }
-      });
 
-      result.monthly_ads = await Promise.all(adsPromises);
+        monthlyList.push({
+          month_key: rng.month_key,
+          month_name: rng.month_name,
+          year: rng.year,
+          month: rng.month,
+          cost, gmv, roas
+        });
+        await new Promise(r => setTimeout(r, 40));
+      }
+
+      result.monthly_ads = monthlyList;
       result.ads_expense_month = result.monthly_ads.reduce((s, m) => s + (m.cost || 0), 0);
     }
   } catch (e) {}
 
-  // 3. Fallback: Nếu fetch trong Service Worker thiếu dữ liệu hoặc có tháng chi phí trống, gọi executeScript trong ngữ cảnh Tab Shopee
+  // 3. Fallback: Nếu fetch trong Service Worker thiếu số dư hoặc tháng hiện tại bị trống cost, gọi executeScript trong ngữ cảnh Tab Shopee
   if (!cds) {
     try { cds = await getSpcCds(); } catch (e) {}
   }
+  const curKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+  const curMonthAd = result.monthly_ads?.find(m => m.month_key === curKey);
   const isMissingData = result.ads_balance === null || result.ads_expense_today === null ||
     !result.monthly_ads || result.monthly_ads.length === 0 ||
-    result.monthly_ads.some(m => !m.cost || !m.gmv);
+    (curMonthAd && !curMonthAd.cost && result.ads_expense_today > 0);
 
   if (isMissingData) {
     let tabId = targetTabId;
@@ -558,6 +569,286 @@ function broadcastProgress(current, total, detail, title, syncMode, monthsCount,
   chrome.runtime.sendMessage({ action: "sync_progress", ...currentProgressState }).catch(() => {});
 }
 
+// ==========================================
+// CÁC HÀM XỬ LÝ XUẤT BÁO CÁO & PARSE EXCEL SHOPEE
+// ==========================================
+
+function unescapeXml(str) {
+  if (!str) return "";
+  return str.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'");
+}
+
+function parseShopeeExcel(uint8Buffer) {
+  if (typeof fflate === "undefined" || !fflate.unzipSync) {
+    throw new Error("Thư viện fflate chưa được nạp vào Service Worker.");
+  }
+  const unzipped = fflate.unzipSync(uint8Buffer, {
+    filter: (file) => file.name.includes("sheet")
+  });
+  const sheetKey = Object.keys(unzipped).find(k => /^xl\/worksheets\/sheet\d+\.xml$/i.test(k));
+  if (!sheetKey || !unzipped[sheetKey]) {
+    throw new Error("Không tìm thấy dữ liệu trang tính trong file Excel xuất từ Shopee.");
+  }
+  const xml = fflate.strFromU8(unzipped[sheetKey]);
+
+  const rows = [];
+  const rowRegex = /<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+  const cellRegex = /<c r="([A-Z]+)\d+"[^>]*>(?:<is><t>([\s\S]*?)<\/t><\/is>|<v>([\s\S]*?)<\/v>)?<\/c>/g;
+
+  let rowMatch;
+  let isHeader = true;
+
+  while ((rowMatch = rowRegex.exec(xml)) !== null) {
+    if (isHeader) { isHeader = false; continue; }
+    const rowContent = rowMatch[2];
+    let cellMatch;
+    const rowData = {};
+    while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
+      const colLetter = cellMatch[1];
+      const val = cellMatch[2] !== undefined ? cellMatch[2] : (cellMatch[3] !== undefined ? cellMatch[3] : "");
+      rowData[colLetter] = unescapeXml(val);
+    }
+    rows.push(rowData);
+  }
+  return rows;
+}
+
+function groupAndNormalizeOrders(rawRows) {
+  const ordersMap = new Map();
+  for (const r of rawRows) {
+    const sn = (r["A"] || "").trim();
+    if (!sn) continue;
+    if (!ordersMap.has(sn)) ordersMap.set(sn, []);
+    ordersMap.get(sn).push(r);
+  }
+
+  const normalizedOrders = [];
+  for (const [sn, items] of ordersMap.entries()) {
+    const first = items[0];
+    const orderStatusRaw = (first["D"] || "").trim();
+    const cancelReason = (first["F"] || "").trim();
+    const returnStatus = (first["O"] || "").trim();
+
+    // Chuẩn hóa trạng thái đơn hàng
+    let orderStatus = "Chờ lấy hàng";
+    const stLower = orderStatusRaw.toLowerCase();
+    if (stLower.includes("hủy")) {
+      orderStatus = "Đã hủy";
+    } else if (returnStatus && (returnStatus.includes("Chấp Thuận") || returnStatus.includes("hoàn tất"))) {
+      orderStatus = "Trả hàng/Hoàn tiền";
+    } else if (stLower.includes("hoàn thành")) {
+      orderStatus = "Hoàn thành";
+    } else if (stLower.includes("đã nhận") || stLower.includes("nhận được hàng") || stLower.includes("đã giao")) {
+      orderStatus = "Đã giao";
+    } else if (stLower.includes("đang giao") || stLower.includes("vận chuyển") || stLower.includes("giao cho đvvc")) {
+      orderStatus = "Đang giao";
+    } else if (stLower.includes("chờ xác nhận")) {
+      orderStatus = "Chờ xác nhận";
+    } else if (stLower.includes("chờ")) {
+      orderStatus = "Chờ lấy hàng";
+    } else if (stLower.includes("trả hàng") || stLower.includes("hoàn tiền")) {
+      orderStatus = "Trả hàng/Hoàn tiền";
+    }
+
+    const isCancelled = orderStatus.includes("hủy");
+    const isReturned = orderStatus.includes("Trả hàng") || (returnStatus && returnStatus.includes("Chấp Thuận"));
+
+    // Gom chi tiết từng món, tổng số lượng & tổng tiền sản phẩm (tổng Cột AC: Giá ưu đãi x SL)
+    let totalQty = 0;
+    let totalProductAmount = 0;
+    const itemLines = [];
+    for (const it of items) {
+      const pName = it["Q"] || "Sản phẩm";
+      const pVar = it["U"] ? ` [${it["U"]}]` : "";
+      const qty = parseInt(it["AA"] || "1", 10) || 1;
+      totalQty += qty;
+      itemLines.push(`• ${pName}${pVar} x ${qty}`);
+
+      const lineVal = parseFloat(it["AC"] || "0") || (parseFloat(it["Z"] || "0") * qty);
+      totalProductAmount += lineVal;
+    }
+    const itemsDetail = itemLines.join("\n");
+
+    // 1. Tổng tiền sản phẩm: Lấy tổng Cột AC (Giá ưu đãi * Số lượng). Nếu hủy = 0
+    const productAmount = isCancelled ? 0 : Math.round(totalProductAmount);
+
+    // 2. Giảm giá của Shop (Cột AE) - shop chịu
+    const shopVoucher = parseFloat(first["AE"] || "0") || 0;
+
+    // 3. Phí vận chuyển người mua trả (Cột AQ)
+    const buyerShippingFee = parseFloat(first["AQ"] || "0") || 0;
+
+    // 4. Các loại phí sàn Shopee (Cột AX: Phí cố định, Cột AY: Phí dịch vụ, Cột AZ: Phí xử lý giao dịch)
+    const feeFixed = parseFloat(first["AX"] || "0") || 0;
+    const feeSvc = parseFloat(first["AY"] || "0") || 0;
+    const feeTrans = parseFloat(first["AZ"] || "0") || 0;
+    const returnFee = parseFloat(first["AS"] || "0") || 0;
+
+    // 5. Thuế sàn Shopee khấu trừ tại nguồn (1.5% doanh thu hàng: 1% GTGT + 0.5% TNCN)
+    const taxableAmount = Math.max(0, totalProductAmount - shopVoucher);
+    const vatTax = Math.round(taxableAmount * 0.01);
+    const pitTax = Math.round(taxableAmount * 0.005);
+    const totalTax = vatTax + pitTax;
+
+    // 6. Doanh thu đơn hàng ước tính (Escrow):
+    // Doanh thu = Tiền hàng - Giảm giá Shop + Phí ship khách trả - Phí cố định - Phí Dịch vụ - Phí xử lý GD - Thuế (1.5%)
+    let escrowAmount = 0;
+    if (isCancelled) {
+      escrowAmount = 0;
+    } else if (isReturned) {
+      escrowAmount = returnFee > 0 ? -Math.round(returnFee) : 0;
+    } else {
+      escrowAmount = Math.round(totalProductAmount - shopVoucher + buyerShippingFee - feeFixed - feeSvc - feeTrans - totalTax);
+    }
+
+    // 7. Tổng số tiền người mua thanh toán: Cột AT
+    const buyerPaidAmount = isCancelled ? 0 : Math.round(parseFloat(first["AT"] || "0") || 0);
+
+    // Chuẩn hóa tên đơn vị vận chuyển
+    let carrier = (first["I"] || "").trim();
+    if (carrier.startsWith("Nhanh-")) carrier = carrier.replace("Nhanh-", "");
+    if (carrier.startsWith("Hỏa Tốc-")) carrier = carrier.replace("Hỏa Tốc-", "");
+
+    // Ghi chú hoàn / hủy / hoàn thành
+    let returnCancelNote = "Bình thường";
+    if (isCancelled) {
+      returnCancelNote = cancelReason || "Đã hủy bởi Người mua";
+    } else if (returnStatus) {
+      returnCancelNote = returnStatus;
+    } else if (first["AU"]) {
+      returnCancelNote = `Hoàn thành lúc ${first["AU"]}`;
+    }
+
+    // Ngày tạo định dạng ISO
+    const rawDate = first["C"] ? first["C"].trim() : "";
+    let createdAtIso = new Date().toISOString();
+    if (rawDate) {
+      const parsedD = new Date(rawDate.replace(" ", "T") + ":00.000Z");
+      createdAtIso = isNaN(parsedD.getTime()) ? parseCreatedAtFromSn(sn) : parsedD.toISOString();
+    } else {
+      createdAtIso = parseCreatedAtFromSn(sn);
+    }
+
+    normalizedOrders.push({
+      created_at: createdAtIso,
+      order_sn: sn,
+      tracking_no: (first["H"] || "").trim(),
+      shipping_carrier: carrier || "SPX Express",
+      buyer_name: (first["BB"] || first["BC"] || "").trim(),
+      shipping_area: (first["BE"] || first["BF"] || "").trim(),
+      items_detail: itemsDetail || `• Đơn hàng ${sn}`,
+      total_quantity: totalQty || 1,
+      product_amount: productAmount,
+      escrow_amount: escrowAmount,
+      buyer_paid_amount: buyerPaidAmount,
+      order_status: orderStatus,
+      return_status: returnCancelNote
+    });
+  }
+
+  return normalizedOrders;
+}
+
+async function getRecentReportsList(spcCds) {
+  try {
+    const url = `https://banhang.shopee.vn/api/v3/settings/get_report_list/?SPC_CDS=${spcCds}&SPC_CDS_VER=2&parent_type=ps_reports_order&page_number=1&page_size=20&status=1,2`;
+    const res = await fetch(url, { method: "GET", credentials: "include" });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.data?.list || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function requestOrderReport(spcCds, startDateStr, endDateStr) {
+  const url = `https://banhang.shopee.vn/api/v3/order/request_order_report?SPC_CDS=${spcCds}&SPC_CDS_VER=2&start_date=${startDateStr}&end_date=${endDateStr}&language=vn&screening_condition=order_creation_date&parcel_level_filter=0`;
+  const res = await fetch(url, { method: "GET", credentials: "include" });
+  if (!res.ok) throw new Error(`Shopee Export API HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.code !== 0) {
+    if (json.code === 100000 || /login|auth/i.test(json.message || "")) {
+      throw new Error("Phiên đăng nhập Shopee đã hết hạn. Vui lòng đăng nhập lại banhang.shopee.vn");
+    }
+    throw new Error(`Shopee từ chối tạo báo cáo xuất đơn: ${json.message || json.user_message || json.code}`);
+  }
+  return json.data;
+}
+
+async function pollReportReady(spcCds, reportId, onTick, maxWaitMs = 600000) {
+  const pollUrl = `https://banhang.shopee.vn/api/v3/settings/get_report/?&SPC_CDS=${spcCds}&SPC_CDS_VER=2&report_id=${reportId}`;
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
+    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    if (typeof onTick === "function") onTick(elapsedSec);
+
+    const res = await fetch(pollUrl, { method: "GET", credentials: "include" });
+    if (res.ok) {
+      const json = await res.json();
+      if (json.code === 0 && json.data) {
+        if (json.data.status === 2) {
+          return json.data;
+        }
+        if (json.data.status !== 1) {
+          throw new Error(`Shopee báo lỗi khi tạo báo cáo (status: ${json.data.status})`);
+        }
+      }
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  throw new Error("Quá thời gian chờ Shopee xuất báo cáo (>10 phút)");
+}
+
+async function downloadReportFile(spcCds, reportId) {
+  const dlUrl = `https://banhang.shopee.vn/api/v3/settings/download_report/?&SPC_CDS=${spcCds}&SPC_CDS_VER=2&report_id=${reportId}`;
+  const res = await fetch(dlUrl, { method: "GET", credentials: "include" });
+  if (!res.ok) throw new Error(`Không thể tải file báo cáo Shopee (HTTP ${res.status})`);
+  const buffer = await res.arrayBuffer();
+  const uint8 = new Uint8Array(buffer);
+  if (uint8.length < 4 || uint8[0] !== 0x50 || uint8[1] !== 0x4B) {
+    throw new Error("Dữ liệu tải về không phải là file Excel zip hợp lệ");
+  }
+  return uint8;
+}
+
+function generateExportChunks(syncMode, monthsCount) {
+  const chunks = [];
+  const now = new Date();
+  const count = syncMode === "all" ? 12 : Math.max(1, Math.min(12, monthsCount || 1));
+
+  function formatDate(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
+
+  for (let i = 0; i < count; i++) {
+    let startObj, endObj, label;
+    if (i === 0) {
+      startObj = new Date(now.getFullYear(), now.getMonth(), 1);
+      endObj = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      label = `Tháng ${now.getMonth() + 1}/${now.getFullYear()}`;
+    } else {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const y = d.getFullYear();
+      const m = d.getMonth();
+      startObj = new Date(y, m, 1);
+      endObj = new Date(y, m + 1, 0); // Ngày cuối cùng của tháng
+      label = `Tháng ${m + 1}/${y}`;
+    }
+
+    chunks.push({
+      label,
+      startDateStr: formatDate(startObj),
+      endDateStr: formatDate(endObj)
+    });
+  }
+
+  return chunks;
+}
+
 async function performFullSync(customWebhookUrl, options = {}) {
   if (isSyncingInProgress) {
     return { success: false, message: "Đang có tiến trình đồng bộ đang chạy, vui lòng đợi..." };
@@ -566,11 +857,6 @@ async function performFullSync(customWebhookUrl, options = {}) {
   const settings = await getSettings();
   const syncMode = options.syncMode || "all";
   const monthsCount = options.monthsCount || settings.syncMonthsCount || 1;
-  let cutoffTs = 0;
-  if (syncMode === "months" && monthsCount >= 1) {
-    const now = new Date();
-    cutoffTs = new Date(now.getFullYear(), now.getMonth() - (monthsCount - 1), 1, 0, 0, 0).getTime();
-  }
 
   const syncStartTime = Date.now();
   isSyncingInProgress = true;
@@ -578,7 +864,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
   currentProgressState.startTime = syncStartTime;
   currentProgressState.durationMs = 0;
   currentProgressState.durationText = "0s";
-  broadcastProgress(0, 0, "Đang kết nối Shopee API...", "Bắt đầu đồng bộ", syncMode, monthsCount);
+  broadcastProgress(0, 0, "Đang kết nối Shopee Seller Center...", "Bắt đầu xuất dữ liệu", syncMode, monthsCount);
 
   let activeTabId = null;
   let didCreateTab = false;
@@ -589,239 +875,152 @@ async function performFullSync(customWebhookUrl, options = {}) {
     didCreateTab = resolvedTab.created;
 
     const spcCds = await getSpcCds();
-    const indexUrl = `https://banhang.shopee.vn/api/v3/order/search_order_list_index?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
-    const cardUrl = `https://banhang.shopee.vn/api/v3/order/get_order_list_card_list?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
+    const chunks = generateExportChunks(syncMode, monthsCount);
+    const totalChunks = chunks.length;
+    const unifiedOrdersMap = new Map();
+    let emptyChunksStreak = 0;
+    let actualChunksProcessed = 0;
 
-    const PAGE_SIZE = 200;
-    async function fetchIndexPage(page) {
-      if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
-      const r = await fetch(indexUrl, {
-        method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-        body: JSON.stringify({
-          order_list_tab: 100, entity_type: 1, pagination: { from_page_number: 1, page_number: page, page_size: PAGE_SIZE },
-          filter: { fulfillment_type: 0, is_drop_off: 0, fulfillment_source: 0, action_filter: 0 }, sort: { sort_type: 3, ascending: false }
-        })
-      });
-      if (!r.ok) throw new Error(`Shopee index API HTTP ${r.status}`);
-      const j = await r.json();
-      if (j.code !== 0 && j.message) {
-        if (j.message.toLowerCase().includes("login") || j.message.toLowerCase().includes("auth") || j.code === 100000) {
-          throw new Error("Phiên đăng nhập Shopee đã hết hạn. Vui lòng đăng nhập lại banhang.shopee.vn");
-        }
-        throw new Error(`Shopee API lỗi: ${j.message}`);
-      }
-      return j.data || {};
-    }
+    for (let cIdx = 0; cIdx < totalChunks; cIdx++) {
+      if (syncCancelRequested) break;
+      actualChunksProcessed = cIdx + 1;
+      const chunk = chunks[cIdx];
+      const chunkTag = totalChunks > 1 ? ` (${chunk.label} - ${cIdx + 1}/${totalChunks})` : "";
+      const expectedFileName = `Order.all.${chunk.startDateStr.replace(/-/g, "")}_${chunk.endDateStr.replace(/-/g, "")}.xlsx`;
 
-    const firstPage = await fetchIndexPage(1);
-    let rawIndex = [...(firstPage.index_list || [])];
-    const reportedTotal = firstPage.pagination?.total || rawIndex.length;
+      // Lấy danh sách báo cáo gần đây của shop để tái sử dụng
+      const recentList = await getRecentReportsList(spcCds);
+      const existing = recentList.find(r => r.report_file_name === expectedFileName);
 
-    if (reportedTotal === 0 || rawIndex.length === 0) {
-      return { success: false, message: "Không tìm thấy đơn hàng nào để đồng bộ!" };
-    }
+      let reportId = null;
+      let recordNumbers = null;
+      let isAlreadyCompleted = false;
 
-    let indexList = [];
-
-    // Chế độ 1: Đồng bộ theo tháng -> Tính chuẩn xác số lượng đơn thuộc tháng trước khi đồng bộ
-    if (syncMode === "months" && cutoffTs > 0) {
-      broadcastProgress(0, 0, `Đang xác định số lượng đơn ${monthsCount} tháng gần nhất...`, "Đang quét mã đơn", syncMode, monthsCount);
-
-      let allIndex = [...rawIndex], page = 1, foundBoundary = false;
-      const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
-
-      while (page <= totalPages && !foundBoundary) {
-        if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
-
-        let pageItems = [];
-        if (page === 1) {
-          pageItems = rawIndex;
+      if (cIdx === 0) {
+        // THÁNG HIỆN TẠI (cIdx === 0): Bắt buộc LUÔN LUÔN yêu cầu xuất mới nhất để lấy đơn hàng & trạng thái mới nhất đến từng phút!
+        broadcastProgress(cIdx, totalChunks, `Yêu cầu Shopee xuất file mới nhất${chunkTag} [${chunk.startDateStr} đến ${chunk.endDateStr}]...`, "Yêu cầu báo cáo", syncMode, monthsCount);
+        const reportData = await requestOrderReport(spcCds, chunk.startDateStr, chunk.endDateStr);
+        reportId = reportData.report_id;
+        recordNumbers = reportData.record_numbers;
+      } else {
+        // CÁC THÁNG QUÁ KHỨ (cIdx > 0): Dữ liệu lịch sử đã đóng sổ, có thể tái sử dụng báo cáo đã sẵn sàng để tiết kiệm thời gian
+        if (existing && existing.status === 2) {
+          reportId = existing.report_id;
+          recordNumbers = existing.record_numbers;
+          isAlreadyCompleted = true;
+          broadcastProgress(cIdx, totalChunks, `Sử dụng báo cáo đã sẵn sàng${chunkTag} (${recordNumbers || 0} đơn)...`, "Báo cáo sẵn sàng", syncMode, monthsCount);
+        } else if (existing && existing.status === 1) {
+          // Đang có tiến trình xuất báo cáo cho tháng này -> Dùng luôn ID hiện có để poll
+          reportId = existing.report_id;
+          recordNumbers = existing.record_numbers;
         } else {
-          try {
-            const pageData = await fetchIndexPage(page);
-            pageItems = pageData.index_list || [];
-            if (pageItems.length === 0) break;
-            allIndex.push(...pageItems);
-          } catch (e) {
-            if (e.message === "SYNC_CANCELLED") throw e;
-            break;
-          }
+          // Gửi yêu cầu tạo báo cáo mới
+          broadcastProgress(cIdx, totalChunks, `Yêu cầu Shopee xuất file${chunkTag} [${chunk.startDateStr} đến ${chunk.endDateStr}]...`, "Yêu cầu báo cáo", syncMode, monthsCount);
+          const reportData = await requestOrderReport(spcCds, chunk.startDateStr, chunk.endDateStr);
+          reportId = reportData.report_id;
+          recordNumbers = reportData.record_numbers;
         }
+      }
 
-        const lastItem = pageItems[pageItems.length - 1];
-        const lastSn = await fetchCardSn(lastItem, spcCds);
-        const lastTs = getSnDateTimestamp(lastSn);
+      // Kích hoạt sớm yêu cầu xuất cho tháng tiếp theo để Shopee xử lý song song trên server
+      if (cIdx + 1 < totalChunks && !syncCancelRequested) {
+        const nextChunk = chunks[cIdx + 1];
+        const nextExpectedFileName = `Order.all.${nextChunk.startDateStr.replace(/-/g, "")}_${nextChunk.endDateStr.replace(/-/g, "")}.xlsx`;
+        const nextExisting = recentList.find(r => r.report_file_name === nextExpectedFileName);
+        if (!nextExisting) {
+          requestOrderReport(spcCds, nextChunk.startDateStr, nextChunk.endDateStr).catch(() => {});
+        }
+      }
 
-        broadcastProgress(0, allIndex.length, `Đang phân tích phạm vi đơn (trang ${page}/${totalPages})...`, "Đang quét mã đơn", syncMode, monthsCount);
+      if (syncCancelRequested) break;
 
-        // Nếu đơn cuối trang có ngày tạo nhỏ hơn cutoffTs -> Ranh giới nằm trên trang này
-        if (lastTs > 0 && lastTs < cutoffTs) {
-          foundBoundary = true;
-          let low = 0, high = pageItems.length - 1, boundaryIndex = pageItems.length - 1;
-          while (low <= high) {
-            if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
-            const mid = Math.floor((low + high) / 2);
-            const midSn = await fetchCardSn(pageItems[mid], spcCds);
-            const midTs = getSnDateTimestamp(midSn);
-            if (midTs > 0 && midTs < cutoffTs) {
-              boundaryIndex = mid;
-              high = mid - 1;
-            } else {
-              low = mid + 1;
-            }
-          }
-          const prevCount = (page - 1) * PAGE_SIZE;
-          indexList = [...allIndex.slice(0, prevCount), ...pageItems.slice(0, boundaryIndex)];
-          break;
+      // Nếu Shopee thông báo tháng này có 0 đơn hàng -> Bỏ qua ngay lập tức!
+      if (recordNumbers === 0) {
+        broadcastProgress(cIdx + 1, totalChunks, `Tháng ${chunk.label} không có đơn hàng. Bỏ qua.`, "Bỏ qua", syncMode, monthsCount);
+        emptyChunksStreak++;
+        if (syncMode === "all" && emptyChunksStreak >= 2) break;
+        continue;
+      }
+
+      // 2. Thăm dò (poll) cho đến khi file sẵn sàng (nếu chưa hoàn thành)
+      if (!isAlreadyCompleted) {
+        await pollReportReady(spcCds, reportId, (elapsedSec) => {
+          broadcastProgress(cIdx, totalChunks, `Shopee đang tạo báo cáo${chunkTag} (${elapsedSec}s)...`, "Đang tạo báo cáo", syncMode, monthsCount);
+        });
+      }
+
+      if (syncCancelRequested) break;
+
+      // 3. Tải file Excel nhị phân
+      broadcastProgress(cIdx, totalChunks, `Đang tải file Excel${chunkTag}...`, "Tải báo cáo", syncMode, monthsCount);
+      const uint8File = await downloadReportFile(spcCds, reportId);
+
+      if (syncCancelRequested) break;
+
+      // 4. Giải nén và trích xuất dữ liệu XML trong bộ nhớ
+      broadcastProgress(cIdx, totalChunks, `Đang giải nén & phân tích dữ liệu Excel${chunkTag}...`, "Giải nén dữ liệu", syncMode, monthsCount);
+      const rawRows = parseShopeeExcel(uint8File);
+
+      // 5. Chuẩn hóa & gom đơn hàng
+      const chunkOrders = groupAndNormalizeOrders(rawRows);
+      for (const ord of chunkOrders) {
+        if (!unifiedOrdersMap.has(ord.order_sn)) {
+          unifiedOrdersMap.set(ord.order_sn, ord);
+        }
+      }
+
+      // Tối ưu hóa: nếu ở chế độ "all" mà gặp 2 tháng liên tiếp không có đơn hàng nào -> đã chạm mốc thành lập shop
+      if (syncMode === "all" && cIdx > 0) {
+        if (chunkOrders.length === 0) {
+          emptyChunksStreak++;
+          if (emptyChunksStreak >= 2) break;
         } else {
-          page++;
+          emptyChunksStreak = 0;
         }
       }
 
-      if (!foundBoundary) indexList = allIndex;
-    } else {
-      // Chế độ 2: Đồng bộ toàn bộ đơn
-      broadcastProgress(0, reportedTotal, `Tìm thấy ${reportedTotal} đơn hàng, đang quét mã...`, "Đang quét mã đơn", syncMode, monthsCount);
-      if (reportedTotal > rawIndex.length) {
-        const totalPages = Math.ceil(reportedTotal / PAGE_SIZE);
-        for (let p = 2; p <= totalPages; p += 5) {
-          if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
-          const slicePages = Array.from({ length: Math.min(5, totalPages - p + 1) }, (_, i) => p + i);
-          const resList = await Promise.all(slicePages.map(page => fetchIndexPage(page).then(d => d.index_list || []).catch(() => [])));
-          resList.forEach(l => rawIndex.push(...l));
-          broadcastProgress(rawIndex.length, reportedTotal, `Đã lấy ${rawIndex.length}/${reportedTotal} mã đơn...`, "Đang quét mã đơn", syncMode, monthsCount);
-          await new Promise(r => setTimeout(r, 30));
-        }
-      }
-      indexList = rawIndex;
+      await new Promise(r => setTimeout(r, 200));
     }
 
     if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
 
-    const uniqueMap = new Map();
-    indexList.forEach((item) => {
-      const key = item.order_id || `${item.package_number}_${item.order_sn}` || JSON.stringify(item);
-      if (!uniqueMap.has(key)) uniqueMap.set(key, item);
-    });
-    indexList = Array.from(uniqueMap.values());
+    const allOrders = Array.from(unifiedOrdersMap.values());
+    allOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-    if (indexList.length === 0) {
-      return { success: false, message: "Không có đơn hàng nào trong khoảng thời gian đã chọn!" };
+    if (allOrders.length === 0) {
+      return { success: false, message: "Không tìm thấy đơn hàng nào trong khoảng thời gian đã chọn!" };
     }
 
-    const targetTotal = indexList.length;
-    broadcastProgress(0, targetTotal, `Tìm thấy ${targetTotal} đơn cần đồng bộ. Bắt đầu tải chi tiết...`, "Bắt đầu đồng bộ", syncMode, monthsCount);
+    const targetTotal = allOrders.length;
+    broadcastProgress(0, targetTotal, `Đã xuất ${targetTotal} đơn hàng thành công! Đang chuẩn bị ghi Google Sheets...`, "Ghi Google Sheets", syncMode, monthsCount);
 
-    const CHUNK_SIZE = 5, CONCURRENCY = 16, STREAM_BATCH_SIZE = 500, DELAY_BETWEEN_ROUNDS = 25;
-    let currentStreamBatch = [], totalOrdersSynced = 0;
-    const chunks = [];
-    for (let i = 0; i < indexList.length; i += CHUNK_SIZE) chunks.push(indexList.slice(i, i + CHUNK_SIZE));
+    // 6. Gửi dữ liệu đơn hàng sang Google Sheets theo từng batch 500 đơn
+    const STREAM_BATCH_SIZE = 500;
+    let totalOrdersSynced = 0;
 
-    for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+    for (let i = 0; i < allOrders.length; i += STREAM_BATCH_SIZE) {
       if (syncCancelRequested) break;
-
-      const slice = chunks.slice(i, i + CONCURRENCY);
-      const batchResults = await Promise.all(
-        slice.map(chunk => fetch(cardUrl, {
-          method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include",
-          body: JSON.stringify({ order_list_tab: 100, need_count_down_desc: false, order_param_list: chunk })
-        }).then(r => r.json()).then(res => res.data?.card_list || []).catch(() => []))
-      );
-
-      const rawCards = [];
-      batchResults.forEach(cards => {
-        cards.forEach(item => {
-          const cardObj = extractCardObject(item);
-          if (cardObj) rawCards.push(cardObj);
-        });
-      });
-
-      const ordersToFetch = rawCards.map(c => {
-        const oid = c.order_ext_info?.order_id || c.order_id;
-        const status = (c.status_info?.status || "").toLowerCase();
-        const isCancelled = status.includes("hủy") || status.includes("trả") || status.includes("hoàn");
-        return oid ? { id: oid, isCancelled } : null;
-      }).filter(Boolean);
-
-      const tabMap = await fetchIncomeViaTab(ordersToFetch, activeTabId);
-      const extraMap = tabMap || new Map();
-
-      for (let k = 0; k < rawCards.length; k += 10) {
-        if (syncCancelRequested) break;
-        await Promise.all(rawCards.slice(k, k + 10).map(async (c) => {
-          const oid = c.order_ext_info?.order_id || c.order_id;
-          if (oid && !extraMap.has(String(oid))) {
-            const status = (c.status_info?.status || "").toLowerCase();
-            const isCancelled = status.includes("hủy") || status.includes("trả") || status.includes("hoàn");
-            const info = await fetchOrderDetailAndIncome(oid, spcCds, isCancelled);
-            if (info) extraMap.set(String(oid), info);
-          }
-        }));
-      }
-
-      rawCards.forEach(cardObj => {
-        const oid = cardObj.order_ext_info?.order_id || cardObj.order_id;
-        const extra = oid ? extraMap.get(String(oid)) : null;
-        const parsed = formatShopeeOrderCard(cardObj, extra);
-        if (parsed) {
-          if (!cutoffTs || new Date(parsed.created_at).getTime() >= cutoffTs) {
-            currentStreamBatch.push(parsed);
-          }
-        }
-      });
-
-      const currentTotal = totalOrdersSynced + currentStreamBatch.length;
-      broadcastProgress(currentTotal, targetTotal, `Đã tải ${currentTotal}/${targetTotal} đơn chi tiết...`, "Đang tải đơn hàng", syncMode, monthsCount);
-
-      if (currentStreamBatch.length >= STREAM_BATCH_SIZE) {
-        const batchToSend = [...currentStreamBatch];
-        currentStreamBatch = [];
-        broadcastProgress(currentTotal, targetTotal, `Đang nạp mẻ ${batchToSend.length} đơn sang Sheet...`, "Đang ghi Sheet", syncMode, monthsCount);
-        await postToGoogleSheet({ orders: batchToSend, is_last_batch: false }, customWebhookUrl);
-        totalOrdersSynced += batchToSend.length;
-      }
-
-      if (DELAY_BETWEEN_ROUNDS) await new Promise(r => setTimeout(r, DELAY_BETWEEN_ROUNDS));
+      const batchToSend = allOrders.slice(i, i + STREAM_BATCH_SIZE);
+      const fromOrder = i + 1;
+      const toOrder = i + batchToSend.length;
+      broadcastProgress(toOrder, targetTotal, `Đang nạp mẻ ${fromOrder} - ${toOrder}/${targetTotal} đơn sang Sheet...`, "Đang ghi Sheet", syncMode, monthsCount);
+      await postToGoogleSheet({ orders: batchToSend, is_last_batch: false }, customWebhookUrl);
+      totalOrdersSynced += batchToSend.length;
     }
 
-    if (syncCancelRequested) {
-      if (currentStreamBatch.length > 0) {
-        await postToGoogleSheet({ orders: currentStreamBatch, is_last_batch: false }, customWebhookUrl);
-        totalOrdersSynced += currentStreamBatch.length;
-      }
-      try { await postToGoogleSheet({ action: "setup_dashboard", is_last_batch: true }, customWebhookUrl); } catch (e) {}
-      const syncDurationMs = Date.now() - syncStartTime;
-      const syncDurationText = formatDuration(syncDurationMs);
-      const cancelRes = {
-        success: false, cancelled: true, totalOrders: totalOrdersSynced,
-        durationMs: syncDurationMs, durationText: syncDurationText,
-        message: `Đã hủy đồng bộ theo yêu cầu (đã lưu ${totalOrdersSynced} đơn - ${syncDurationText}).`
-      };
-      await chrome.storage.local.set({
-        lastSyncTimestamp: Date.now(), lastSyncResult: cancelRes,
-        lastSyncDurationMs: syncDurationMs, lastSyncDurationText: syncDurationText
-      });
-      broadcastProgress(totalOrdersSynced, targetTotal, cancelRes.message, "Đã hủy", syncMode, monthsCount, true);
-      return cancelRes;
-    }
+    if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
 
-    totalOrdersSynced += currentStreamBatch.length;
-    broadcastProgress(totalOrdersSynced, targetTotal, `Đang chốt mẻ cuối ${currentStreamBatch.length} đơn sang Sheet...`, "Ghi Sheet", syncMode, monthsCount);
+    // 7. Lấy chi phí Shopee Ads: CHỈ gọi API cho đúng số tháng được đồng bộ trong lần chạy này
+    const adsMonthsCount = syncMode === "all"
+      ? Math.max(1, actualChunksProcessed)
+      : Math.max(1, Math.min(12, Number(monthsCount) || 1));
 
-    // 1. Gửi mẻ đơn hàng cuối cùng sang DonHangShopee (nếu còn)
-    if (currentStreamBatch.length > 0) {
-      const lastBatchOrders = [...currentStreamBatch];
-      currentStreamBatch = [];
-      await postToGoogleSheet({ orders: lastBatchOrders, is_last_batch: false }, customWebhookUrl);
-    }
-
-    // 2. Tính timestamp theo TỪNG THÁNG và lấy chi phí Shopee Ads độc lập cho mỗi tháng
-    broadcastProgress(totalOrdersSynced, targetTotal, `Đang lấy chi phí Quảng cáo (Ads) cho ${monthsCount} tháng...`, "Quảng cáo Ads", syncMode, monthsCount);
-    const monthRanges = getMonthTimestampRanges(syncMode === "months" ? Math.max(1, Number(monthsCount) || 1) : 12);
+    broadcastProgress(totalOrdersSynced, targetTotal, `Đang cập nhật chi phí Quảng cáo Shopee Ads (${adsMonthsCount} tháng)...`, "Quảng cáo Ads", syncMode, monthsCount);
+    const monthRanges = getMonthTimestampRanges(adsMonthsCount);
     const adsInfo = await fetchAdsPerformanceInfo(spcCds, monthRanges, activeTabId);
 
-    // 3. Kích hoạt cập nhật hoàn chỉnh Dashboard với đầy đủ chi phí theo từng tháng
-    broadcastProgress(totalOrdersSynced, targetTotal, `Đang cập nhật bảng Live Dashboard...`, "Cập nhật Dashboard", syncMode, monthsCount);
+    // 8. Chốt mẻ cuối cùng và làm mới Live Dashboard
+    broadcastProgress(totalOrdersSynced, targetTotal, "Đang chốt số liệu và cập nhật bảng Live Dashboard...", "Cập nhật Dashboard", syncMode, monthsCount);
     const finalSheetResult = await postToGoogleSheet({
       action: "setup_dashboard",
       force_refresh_code: true,
@@ -846,11 +1045,12 @@ async function performFullSync(customWebhookUrl, options = {}) {
     await chrome.storage.local.set({
       lastSyncTimestamp: Date.now(), lastSyncResult: finalResult,
       lastSyncDurationMs: syncDurationMs, lastSyncDurationText: syncDurationText,
-      recentOrders: currentStreamBatch.slice(0, 30)
+      recentOrders: allOrders.slice(0, 30)
     });
 
     broadcastProgress(totalOrdersSynced, targetTotal, finalResult.message, "Đã hoàn thành", syncMode, monthsCount, true);
     return finalResult;
+
   } catch (err) {
     const syncDurationMs = Date.now() - syncStartTime;
     const syncDurationText = formatDuration(syncDurationMs);

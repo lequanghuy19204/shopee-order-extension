@@ -419,73 +419,21 @@ function setupDashboard(adsData) {
 
   // 1. Quản lý lưu trữ & phục hồi thông tin Ads
   const props = PropertiesService.getScriptProperties();
-  if (adsData) {
+  const existingMap = new Map();
+
+  // A. Nạp từ ScriptProperties đã lưu từ các lần trước
+  const oldJson = props.getProperty("SHOPEE_MONTHLY_ADS");
+  if (oldJson) {
     try {
-      if (adsData.ads_balance !== undefined && adsData.ads_balance !== null && adsData.ads_balance !== "") {
-        props.setProperty("SHOPEE_ADS_BALANCE", String(adsData.ads_balance));
-      }
-      if (adsData.ads_expense_today !== undefined && adsData.ads_expense_today !== null && adsData.ads_expense_today !== "") {
-        props.setProperty("SHOPEE_ADS_TODAY", String(adsData.ads_expense_today));
-      }
-      if (adsData.monthly_ads && Array.isArray(adsData.monthly_ads) && adsData.monthly_ads.length > 0) {
-        // Merge thông minh với dữ liệu đã lưu để bảo toàn chi phí tháng cũ, không bị xóa đè thành 0 khi lần sau API ads trả về 0
-        const existingMap = new Map();
-        const oldJson = props.getProperty("SHOPEE_MONTHLY_ADS");
-        if (oldJson) {
-          try {
-            const arr = JSON.parse(oldJson);
-            if (Array.isArray(arr)) arr.forEach(m => { if (m && m.month_key) existingMap.set(m.month_key, m); });
-          } catch (e) {}
-        }
-        adsData.monthly_ads.forEach(newM => {
-          if (newM && newM.month_key) {
-            const oldM = existingMap.get(newM.month_key);
-            if (!oldM) {
-              existingMap.set(newM.month_key, newM);
-            } else {
-              // Hợp nhất dữ liệu thông minh: Không bao giờ hạ thấp số liệu hoặc ghi đè số > 0 bằng 0
-              const newCost = Number(newM.cost) || 0;
-              const oldCost = Number(oldM.cost) || 0;
-              const newGmv = Number(newM.gmv) || 0;
-              const oldGmv = Number(oldM.gmv) || 0;
-              const newRoas = Number(newM.roas) || 0;
-              const oldRoas = Number(oldM.roas) || 0;
-
-              const cost = Math.max(newCost, oldCost);
-              const gmv = Math.max(newGmv, oldGmv);
-              const roas = newRoas > 0 ? newRoas : (oldRoas > 0 ? oldRoas : (cost > 0 ? gmv / cost : 0));
-
-              existingMap.set(newM.month_key, {
-                ...newM,
-                cost,
-                gmv,
-                roas
-              });
-            }
-          }
-        });
-        props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(Array.from(existingMap.values())));
-      }
-      props.setProperty("SHOPEE_ADS_DATE", new Date().toISOString());
+      const arr = JSON.parse(oldJson);
+      if (Array.isArray(arr)) arr.forEach(m => { if (m && m.month_key) existingMap.set(m.month_key, m); });
     } catch (e) {}
   }
 
+  // B. Quét bảo toàn từ các ô hiện tại trên bảng Dashboard trước khi clear
+  // (Đảm bảo nếu bất kỳ tháng nào đã từng có số liệu hợp lệ > 0 trên bảng thì không bao giờ bị mất)
   let savedBalance = Number(props.getProperty("SHOPEE_ADS_BALANCE")) || 0;
   let savedExpToday = Number(props.getProperty("SHOPEE_ADS_TODAY")) || 0;
-  let savedAdsDate = new Date();
-  const dStr = props.getProperty("SHOPEE_ADS_DATE");
-  if (dStr) {
-    const pD = new Date(dStr);
-    if (!isNaN(pD.getTime())) savedAdsDate = pD;
-  }
-
-  let savedMonthlyAds = [];
-  const mAdsJson = props.getProperty("SHOPEE_MONTHLY_ADS");
-  if (mAdsJson) {
-    try { savedMonthlyAds = JSON.parse(mAdsJson); } catch (e) {}
-  }
-
-  // Fallback nếu trong properties chưa có: đọc từ các ô hiện tại của Dashboard trước khi clear
   if (db && db.getLastRow() >= 22) {
     try {
       if (!savedBalance) {
@@ -496,7 +444,7 @@ function setupDashboard(adsData) {
         const fToday = db.createTextFinder("CHI PHÍ HÔM NAY").matchEntireCell(false).findNext();
         if (fToday) savedExpToday = Number(db.getRange(fToday.getRow() + 1, fToday.getColumn()).getValue()) || 0;
       }
-      if (savedMonthlyAds.length === 0 && db.getLastRow() >= 24) {
+      if (db.getLastRow() >= 24) {
         const lastR = db.getLastRow();
         for (let r = 24; r <= lastR; r++) {
           const mText = String(db.getRange(`J${r}`).getValue() || "");
@@ -504,17 +452,93 @@ function setupDashboard(adsData) {
           const gmvVal = Number(db.getRange(`M${r}`).getValue()) || 0;
           const roasVal = Number(db.getRange(`O${r}`).getValue()) || 0;
           const match = mText.match(/(\d{1,2})\/(\d{4})/);
-          if (match && costVal > 0) {
+          if (match && (costVal > 0 || gmvVal > 0)) {
             const mKey = `${match[2]}-${String(match[1]).padStart(2, "0")}`;
-            savedMonthlyAds.push({ month_key: mKey, cost: costVal, gmv: gmvVal, roas: roasVal });
+            const curInMap = existingMap.get(mKey);
+            const curCost = Number(curInMap?.cost) || 0;
+            const curGmv = Number(curInMap?.gmv) || 0;
+            if (!curInMap || (costVal > 0 && curCost === 0) || (gmvVal > 0 && curGmv === 0)) {
+              existingMap.set(mKey, {
+                month_key: mKey,
+                month_name: `Tháng ${match[1]}`,
+                year: parseInt(match[2], 10),
+                month: parseInt(match[1], 10),
+                cost: Math.max(costVal, curCost),
+                gmv: Math.max(gmvVal, curGmv),
+                roas: roasVal > 0 ? roasVal : (curInMap?.roas || (costVal > 0 ? gmvVal / costVal : 0))
+              });
+            }
           }
-        }
-        if (savedMonthlyAds.length > 0) {
-          props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(savedMonthlyAds));
         }
       }
     } catch (e) {}
   }
+
+  // C. Hợp nhất dữ liệu Ads mới từ Extension gửi sang
+  if (adsData) {
+    try {
+      if (adsData.ads_balance !== undefined && adsData.ads_balance !== null && adsData.ads_balance !== "") {
+        props.setProperty("SHOPEE_ADS_BALANCE", String(adsData.ads_balance));
+        savedBalance = Number(adsData.ads_balance);
+      }
+      if (adsData.ads_expense_today !== undefined && adsData.ads_expense_today !== null && adsData.ads_expense_today !== "") {
+        props.setProperty("SHOPEE_ADS_TODAY", String(adsData.ads_expense_today));
+        savedExpToday = Number(adsData.ads_expense_today);
+      }
+      if (adsData.monthly_ads && Array.isArray(adsData.monthly_ads) && adsData.monthly_ads.length > 0) {
+        adsData.monthly_ads.forEach(newM => {
+          if (newM && newM.month_key) {
+            const newCost = Number(newM.cost) || 0;
+            const newGmv = Number(newM.gmv) || 0;
+            const newRoas = Number(newM.roas) || 0;
+            const oldM = existingMap.get(newM.month_key);
+
+            if (!oldM) {
+              // Tháng mới: Nếu có số liệu thì lưu vào bản đồ
+              if (newCost > 0 || newGmv > 0) {
+                existingMap.set(newM.month_key, newM);
+              }
+            } else {
+              const oldCost = Number(oldM.cost) || 0;
+              const oldGmv = Number(oldM.gmv) || 0;
+              const oldRoas = Number(oldM.roas) || 0;
+
+              // NGUYÊN TẮC BẢO TOÀN DỮ LIỆU TUYỆT ĐỐI:
+              // - Nếu lần này có số liệu mới (> 0): Cập nhật số liệu mới nhất
+              // - Nếu lần này không đồng bộ tháng đó hoặc API trả về 0: GIỮ NGUYÊN 100% số liệu cũ, không xóa đè!
+              const cost = newCost > 0 ? newCost : oldCost;
+              const gmv = newGmv > 0 ? newGmv : oldGmv;
+              const roas = newRoas > 0 ? newRoas : (oldRoas > 0 ? oldRoas : (cost > 0 ? gmv / cost : 0));
+
+              existingMap.set(newM.month_key, {
+                ...oldM,
+                ...newM,
+                cost,
+                gmv,
+                roas
+              });
+            }
+          }
+        });
+      }
+      props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(Array.from(existingMap.values())));
+      props.setProperty("SHOPEE_ADS_DATE", new Date().toISOString());
+    } catch (e) {}
+  } else {
+    // Khi chạy từ menu UI (không có adsData truyền vào), vẫn lưu lại existingMap đã phục hồi từ Sheet
+    try {
+      props.setProperty("SHOPEE_MONTHLY_ADS", JSON.stringify(Array.from(existingMap.values())));
+    } catch (e) {}
+  }
+
+  let savedAdsDate = new Date();
+  const dStr = props.getProperty("SHOPEE_ADS_DATE");
+  if (dStr) {
+    const pD = new Date(dStr);
+    if (!isNaN(pD.getTime())) savedAdsDate = pD;
+  }
+
+  const savedMonthlyAds = Array.from(existingMap.values());
 
   // 2. Chuẩn bị sheet Dashboard (an toàn trong cả ngữ cảnh Web App lẫn Menu UI)
   if (!db) {
@@ -649,7 +673,7 @@ function setupDashboard(adsData) {
   }
 
   const monthMap = new Map();
-  // 1. Quét danh sách tháng từ cột Ngày tạo trong DonHangShopee
+  // 1. Quét danh sách các tháng thực tế CÓ ĐƠN HÀNG trong DonHangShopee
   if (masterSheet && masterSheet.getLastRow() >= 3) {
     const dates = masterSheet.getRange(3, 1, masterSheet.getLastRow() - 2, 1).getValues();
     dates.forEach(r => {
@@ -664,42 +688,45 @@ function setupDashboard(adsData) {
     });
   }
 
-  // 2. Bổ sung các tháng có trong dữ liệu Quảng cáo Shopee Ads (savedMonthlyAds)
-  if (savedMonthlyAds && Array.isArray(savedMonthlyAds)) {
-    savedMonthlyAds.forEach(item => {
-      if (item && item.month_key) {
-        if (!monthMap.has(item.month_key)) {
-          const parts = String(item.month_key).split("-");
-          if (parts.length === 2) {
-            const y = parseInt(parts[0], 10);
-            const m = parseInt(parts[1], 10);
-            if (!isNaN(y) && !isNaN(m) && y > 2000 && m >= 1 && m <= 12) {
-              monthMap.set(item.month_key, new Date(y, m - 1, 1));
-            }
-          }
-        }
-      }
-    });
-  }
-
-  // 3. Bổ sung từ các sheet tháng đã có trong file (Tháng 1, Tháng 2, ...)
+  // 2. Bổ sung từ các sheet tháng thực tế ĐÃ CÓ DỮ LIỆU ĐƠN HÀNG (>= 3 dòng)
   try {
     ss.getSheets().forEach(s => {
       const name = s.getName().trim();
       const match = name.match(/^Tháng\s+(\d+)$/i);
-      if (match) {
+      if (match && s.getLastRow() >= 3) {
         const mNum = parseInt(match[1], 10);
         if (mNum >= 1 && mNum <= 12) {
-          const curY = new Date().getFullYear();
-          const key = `${curY}-${String(mNum).padStart(2, "0")}`;
+          let yVal = new Date().getFullYear();
+          try {
+            const firstRowDate = s.getRange(3, 1).getValue();
+            const dObj = parseOrderDate(firstRowDate);
+            if (dObj && !isNaN(dObj.getTime())) yVal = dObj.getFullYear();
+          } catch (e) {}
+          const key = `${yVal}-${String(mNum).padStart(2, "0")}`;
           if (!monthMap.has(key)) {
-            monthMap.set(key, new Date(curY, mNum - 1, 1));
+            monthMap.set(key, new Date(yVal, mNum - 1, 1));
           }
         }
       }
     });
   } catch (e) {}
 
+  // 3. Nếu bảng tính mới tinh chưa có đơn nào nhưng có adsData gửi sang, hiển thị các tháng theo adsData
+  if (monthMap.size === 0 && adsData && adsData.monthly_ads && Array.isArray(adsData.monthly_ads) && adsData.monthly_ads.length > 0) {
+    adsData.monthly_ads.forEach(item => {
+      if (item && item.month_key) {
+        const parts = String(item.month_key).split("-");
+        if (parts.length === 2) {
+          const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+          if (!isNaN(y) && !isNaN(m) && y > 2000 && m >= 1 && m <= 12) {
+            monthMap.set(item.month_key, new Date(y, m - 1, 1));
+          }
+        }
+      }
+    });
+  }
+
+  // 4. Fallback cuối cùng: mặc định hiển thị tháng hiện tại
   if (monthMap.size === 0) {
     const now = new Date();
     monthMap.set(now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0"), new Date(now.getFullYear(), now.getMonth(), 1));

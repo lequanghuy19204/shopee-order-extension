@@ -1,5 +1,6 @@
 # Archives
 *.zip
+*.xlsx
 
 .DS_Store
 Thumbs.db

@@ -178,6 +178,10 @@ async function initPopup() {
           ? `Đã hủy${durStr}`
           : (status.lastSyncResult?.success ? `Sync ${count} đơn${durStr}` : `Lỗi${durStr}`);
         lastSyncInfo.textContent = `${timeStr} (${resText})`;
+        lastSyncInfo.title = status.lastSyncResult?.message || "";
+        if (status.lastSyncResult && !status.lastSyncResult.success && !status.lastSyncResult.cancelled && !status.isSyncing) {
+          showSyncNotice("error", `⚠️ ${status.lastSyncResult.message || "Lỗi đồng bộ"}`);
+        }
       } else {
         lastSyncInfo.textContent = "Chưa có";
       }

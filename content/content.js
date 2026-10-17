@@ -197,7 +197,9 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "sync_progress") {
       const widgetStatus = document.getElementById("soeWidgetStatus");
-      if (widgetStatus) widgetStatus.textContent = `${msg.percent || 0}% (${msg.current || 0} đơn)`;
+      if (widgetStatus) {
+        widgetStatus.textContent = msg.isDone ? "Sẵn sàng" : `${msg.percent || 0}% (${msg.title || "Đang xuất"})`;
+      }
     }
     if (msg.action === "fetch_ads_wallet") {
       fetchAdsWalletDirect().then(data => sendResponse({ success: true, data }));
