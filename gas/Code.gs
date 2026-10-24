@@ -1,6 +1,6 @@
 /**
  * GOOGLE APPS SCRIPT QUẢN LÝ ĐƠN HÀNG & QUẢNG CÁO SHOPEE (v2.13)
- * - Tự động đồng bộ 14 cột sang DonHangShopee và các Sheet Tháng
+ * - Tự động đồng bộ 15 cột sang DonHangShopee và các Sheet Tháng (thêm Cột K Tiền thực nhận vào ví)
  * - Dashboard: Thống kê KPI, Doanh số 6 tháng, Trạng thái đơn, ĐVVC, Ví Dịch vụ hiển thị (PAS)
  */
 const SHEET_NAME = "DonHangShopee";
@@ -287,14 +287,17 @@ function handleShopeePost(e) {
     if (data.orders && Array.isArray(data.orders)) ordersList = data.orders;
     else if (data.order_sn) ordersList = [data];
 
-    if (data.action === "force_update_code" || data.force_refresh_code || data.action === "setup_dashboard" || data.refresh_dashboard) {
+    if (data.action === "force_update_code" || data.force_refresh_code || data.action === "setup_dashboard" || data.refresh_dashboard || data.action === "sync_monthly_sheets") {
       try {
+        const updated = syncMonthlySheetsFromMaster(ss, null);
         setupDashboard(data);
         return ContentService.createTextOutput(JSON.stringify({
-          success: true, message: "🎉 Đã cập nhật Code.gs mới nhất từ GitHub và làm mới Dashboard thành công!"
+          success: true,
+          message: "🎉 Đã cập nhật Code.gs mới nhất từ GitHub, đồng bộ " + (updated.length ? updated.join(", ") : "các Sheet Tháng") + " và làm mới Dashboard thành công!",
+          months: updated
         })).setMimeType(ContentService.MimeType.JSON);
       } catch (e) {
-        Logger.log("Lỗi setupDashboard: " + e.toString());
+        Logger.log("Lỗi setupDashboard / syncMonthlySheets: " + e.toString());
         return ContentService.createTextOutput(JSON.stringify({
           success: false, error: "Lỗi setupDashboard: " + e.toString()
         })).setMimeType(ContentService.MimeType.JSON);
@@ -358,7 +361,7 @@ function syncMonthlySheetsFromMaster(ss, targetMonths) {
     const mName = getMonthSheetName(row[0]);
     if (targetMonths && targetMonths.length > 0 && !targetMonths.includes(mName)) continue;
     if (!monthlyRowsMap.has(mName)) monthlyRowsMap.set(mName, []);
-    monthlyRowsMap.get(mName).push(row.slice(0, 14));
+    monthlyRowsMap.get(mName).push(row.slice(0, 15));
   }
 
   const updatedMonths = [];
@@ -375,6 +378,11 @@ function syncMonthlySheetsFromMaster(ss, targetMonths) {
       if (tB !== tA) return tB - tA;
       return String(b[1] || "").localeCompare(String(a[1] || ""));
     });
+
+    const curCols = mSheet.getMaxColumns();
+    if (curCols < 15) {
+      mSheet.insertColumnsAfter(curCols, 15 - curCols);
+    }
 
     const neededRows = mRows.length + 2;
     const curMax = mSheet.getMaxRows();
