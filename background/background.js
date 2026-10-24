@@ -47,8 +47,22 @@ function getSnDateTimestamp(sn) {
 }
 
 function parseCreatedAtFromSn(orderSn) {
-  const ts = getSnDateTimestamp(orderSn);
-  return ts > 0 ? new Date(ts).toISOString() : new Date().toISOString();
+  if (typeof orderSn === "string" && orderSn.length >= 6) {
+    const yy = 2000 + parseInt(orderSn.slice(0, 2), 10);
+    const mm = String(parseInt(orderSn.slice(2, 4), 10)).padStart(2, "0");
+    const dd = String(parseInt(orderSn.slice(4, 6), 10)).padStart(2, "0");
+    if (yy >= 2020 && yy <= 2035 && Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) {
+      return `${yy}-${mm}-${dd} 00:00:00`;
+    }
+  }
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const h = String(now.getHours()).padStart(2, "0");
+  const min = String(now.getMinutes()).padStart(2, "0");
+  const sec = String(now.getSeconds()).padStart(2, "0");
+  return `${y}-${m}-${d} ${h}:${min}:${sec}`;
 }
 
 function extractCardObject(item) {
@@ -583,8 +597,22 @@ function parseShopeeExcel(uint8Buffer) {
     throw new Error("Thư viện fflate chưa được nạp vào Service Worker.");
   }
   const unzipped = fflate.unzipSync(uint8Buffer, {
-    filter: (file) => file.name.includes("sheet")
+    filter: (file) => file.name.includes("sheet") || file.name.includes("sharedStrings")
   });
+
+  // Trích xuất shared strings nếu có (Shopee lưu trữ dữ liệu text/ngày/tiền trong sharedStrings.xml)
+  let sharedStrings = [];
+  const strKey = Object.keys(unzipped).find(k => /sharedStrings\.xml$/i.test(k));
+  if (strKey && unzipped[strKey]) {
+    const sXml = fflate.strFromU8(unzipped[strKey]);
+    const siRegex = /<si>([\s\S]*?)<\/si>/g;
+    let m;
+    while ((m = siRegex.exec(sXml)) !== null) {
+      const tMatches = [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x => unescapeXml(x[1])).join("");
+      sharedStrings.push(tMatches);
+    }
+  }
+
   const sheetKey = Object.keys(unzipped).find(k => /^xl\/worksheets\/sheet\d+\.xml$/i.test(k));
   if (!sheetKey || !unzipped[sheetKey]) {
     throw new Error("Không tìm thấy dữ liệu trang tính trong file Excel xuất từ Shopee.");
@@ -593,7 +621,7 @@ function parseShopeeExcel(uint8Buffer) {
 
   const rows = [];
   const rowRegex = /<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
-  const cellRegex = /<c r="([A-Z]+)\d+"[^>]*>(?:<is><t>([\s\S]*?)<\/t><\/is>|<v>([\s\S]*?)<\/v>)?<\/c>/g;
+  const cellRegex = /<c r="([A-Z]+)\d+"(?:[^>]*?t="([^"]*)")?[^>]*>(?:<is><t>([\s\S]*?)<\/t><\/is>|<v>([\s\S]*?)<\/v>)?<\/c>/g;
 
   let rowMatch;
   let isHeader = true;
@@ -605,8 +633,15 @@ function parseShopeeExcel(uint8Buffer) {
     const rowData = {};
     while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
       const colLetter = cellMatch[1];
-      const val = cellMatch[2] !== undefined ? cellMatch[2] : (cellMatch[3] !== undefined ? cellMatch[3] : "");
-      rowData[colLetter] = unescapeXml(val);
+      const cellType = cellMatch[2];
+      let val = cellMatch[3] !== undefined ? cellMatch[3] : (cellMatch[4] !== undefined ? cellMatch[4] : "");
+      if (cellType === "s") {
+        const idx = parseInt(val, 10);
+        val = sharedStrings[idx] !== undefined ? sharedStrings[idx] : val;
+      } else {
+        val = unescapeXml(val);
+      }
+      rowData[colLetter] = val;
     }
     rows.push(rowData);
   }
@@ -719,18 +754,26 @@ function groupAndNormalizeOrders(rawRows) {
       returnCancelNote = `Hoàn thành lúc ${first["AU"]}`;
     }
 
-    // Ngày tạo định dạng ISO
+    // Ngày đặt hàng lấy chính xác từ Cột C trong file Excel (format: YYYY-MM-DD HH:mm)
     const rawDate = first["C"] ? first["C"].trim() : "";
-    let createdAtIso = new Date().toISOString();
+    let createdAt = "";
     if (rawDate) {
-      const parsedD = new Date(rawDate.replace(" ", "T") + ":00.000Z");
-      createdAtIso = isNaN(parsedD.getTime()) ? parseCreatedAtFromSn(sn) : parsedD.toISOString();
+      const parts = rawDate.split(" ");
+      if (parts.length === 2) {
+        const timeParts = parts[1].split(":");
+        const h = timeParts[0] || "00";
+        const min = timeParts[1] || "00";
+        const s = timeParts[2] || "00";
+        createdAt = `${parts[0]} ${h}:${min}:${s}`;
+      } else {
+        createdAt = rawDate;
+      }
     } else {
-      createdAtIso = parseCreatedAtFromSn(sn);
+      createdAt = parseCreatedAtFromSn(sn);
     }
 
     normalizedOrders.push({
-      created_at: createdAtIso,
+      created_at: createdAt,
       order_sn: sn,
       tracking_no: (first["H"] || "").trim(),
       shipping_carrier: carrier || "SPX Express",
@@ -812,6 +855,145 @@ async function downloadReportFile(spcCds, reportId) {
   return uint8;
 }
 
+// ==========================================
+// CÁC HÀM XỬ LÝ BÁO CÁO VÍ SHOPEEPAY (my_balance_transaction_report)
+// ==========================================
+
+async function getRecentWalletReportsList(spcCds) {
+  try {
+    const url = `https://banhang.shopee.vn/api/v4/seller/local_wallet/get_wallet_transaction_reports?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
+    const res = await fetch(url, { method: "GET", credentials: "include" });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return json.data?.wallet_transaction_reports || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+async function requestWalletReport(spcCds, startDateStr, endDateStr) {
+  const url = `https://banhang.shopee.vn/api/v4/seller/local_wallet/export_wallet_transactions?SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({
+      wallet_provider: 0,
+      start_date: startDateStr,
+      end_date: endDateStr,
+      transaction_types: [],
+      file_type: 1,
+      client_type: 1
+    })
+  });
+  if (!res.ok) throw new Error(`Shopee Wallet Export API HTTP ${res.status}`);
+  const json = await res.json();
+  if (json.error !== 0 && json.code !== 0) {
+    throw new Error(`Shopee từ chối tạo báo cáo ví: ${json.error_msg || json.message || json.error}`);
+  }
+  const report = json.data?.wallet_transaction_report || json.data;
+  return report;
+}
+
+async function pollWalletReportReady(spcCds, reportId, onTick, maxWaitMs = 600000) {
+  const pollUrl = `https://banhang.shopee.vn/api/v4/seller/local_wallet/get_wallet_transaction_report?report_id=${reportId}&SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
+  const startTime = Date.now();
+  while (Date.now() - startTime < maxWaitMs) {
+    if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
+    const elapsedSec = Math.floor((Date.now() - startTime) / 1000);
+    if (typeof onTick === "function") onTick(elapsedSec);
+
+    const res = await fetch(pollUrl, { method: "GET", credentials: "include" });
+    if (res.ok) {
+      const json = await res.json();
+      if ((json.error === 0 || json.code === 0) && json.data) {
+        const report = json.data.wallet_transaction_report || json.data;
+        if (report.status === 2 || report.status === 3) {
+          return report;
+        }
+        if (report.status === 4) {
+          throw new Error("Shopee báo lỗi khi tạo báo cáo ví (status: 4 FAILED)");
+        }
+      }
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+  throw new Error("Quá thời gian chờ Shopee xuất báo cáo ví (>10 phút)");
+}
+
+async function downloadWalletReportFile(spcCds, reportId) {
+  const dlUrl = `https://banhang.shopee.vn/api/v4/seller/local_wallet/download_wallet_transaction_report?report_id=${reportId}&SPC_CDS=${spcCds}&SPC_CDS_VER=2`;
+  const res = await fetch(dlUrl, { method: "GET", credentials: "include" });
+  if (!res.ok) throw new Error(`Không thể tải file báo cáo ví Shopee (HTTP ${res.status})`);
+  const buffer = await res.arrayBuffer();
+  const uint8 = new Uint8Array(buffer);
+  if (uint8.length < 4 || uint8[0] !== 0x50 || uint8[1] !== 0x4B) {
+    throw new Error("Dữ liệu tải về không phải là file Excel ví zip hợp lệ");
+  }
+  return uint8;
+}
+
+function parseShopeeWalletExcel(uint8Buffer) {
+  if (typeof fflate === "undefined" || !fflate.unzipSync) {
+    throw new Error("Thư viện fflate chưa được nạp vào Service Worker.");
+  }
+  const unzipped = fflate.unzipSync(uint8Buffer, {
+    filter: (file) => file.name.includes("sheet") || file.name.includes("sharedStrings")
+  });
+
+  let sharedStrings = [];
+  const strKey = Object.keys(unzipped).find(k => /sharedStrings\.xml$/i.test(k));
+  if (strKey && unzipped[strKey]) {
+    const sXml = fflate.strFromU8(unzipped[strKey]);
+    const siRegex = /<si>([\s\S]*?)<\/si>/g;
+    let m;
+    while ((m = siRegex.exec(sXml)) !== null) {
+      const tMatches = [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x => unescapeXml(x[1])).join("");
+      sharedStrings.push(tMatches);
+    }
+  }
+
+  const sheetKey = Object.keys(unzipped).find(k => /^xl\/worksheets\/sheet\d+\.xml$/i.test(k));
+  if (!sheetKey || !unzipped[sheetKey]) {
+    throw new Error("Không tìm thấy dữ liệu trang tính trong file Excel ví xuất từ Shopee.");
+  }
+  const xml = fflate.strFromU8(unzipped[sheetKey]);
+
+  const rows = [];
+  const rowRegex = /<row r="(\d+)"[^>]*>([\s\S]*?)<\/row>/g;
+  const cellRegex = /<c r="([A-Z]+)\d+"(?:[^>]*?t="([^"]*)")?[^>]*>(?:<is><t>([\s\S]*?)<\/t><\/is>|<v>([\s\S]*?)<\/v>)?<\/c>/g;
+
+  // Header ở dòng 18, dữ liệu bắt đầu từ dòng 19
+  // Cột D: Mã đơn hàng, Cột F: Số tiền
+  const walletMap = new Map();
+  let rMatch;
+  while ((rMatch = rowRegex.exec(xml)) !== null) {
+    const rIdx = parseInt(rMatch[1], 10);
+    if (rIdx < 19) continue;
+    const rowContent = rMatch[2];
+    let cellMatch;
+    const rowData = {};
+    while ((cellMatch = cellRegex.exec(rowContent)) !== null) {
+      const colLetter = cellMatch[1];
+      const cellType = cellMatch[2];
+      let val = cellMatch[3] !== undefined ? cellMatch[3] : (cellMatch[4] !== undefined ? cellMatch[4] : "");
+      if (cellType === "s") {
+        val = sharedStrings[parseInt(val, 10)] ?? val;
+      } else {
+        val = unescapeXml(val);
+      }
+      rowData[colLetter] = val;
+    }
+    const orderSn = (rowData["D"] || "").trim();
+    const amt = parseFloat(rowData["F"]) || 0;
+    if (orderSn) {
+      const current = walletMap.get(orderSn) || 0;
+      walletMap.set(orderSn, Math.round((current + amt) * 100) / 100);
+    }
+  }
+  return walletMap;
+}
+
 function generateExportChunks(syncMode, monthsCount) {
   const chunks = [];
   const now = new Date();
@@ -878,6 +1060,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
     const chunks = generateExportChunks(syncMode, monthsCount);
     const totalChunks = chunks.length;
     const unifiedOrdersMap = new Map();
+    const walletWarnings = [];
     let emptyChunksStreak = 0;
     let actualChunksProcessed = 0;
 
@@ -963,7 +1146,56 @@ async function performFullSync(customWebhookUrl, options = {}) {
 
       // 5. Chuẩn hóa & gom đơn hàng
       const chunkOrders = groupAndNormalizeOrders(rawRows);
+
+      // 5b. Tải & trích xuất Báo cáo Ví ShopeePay (my_balance_transaction_report) cho tháng này
+      let chunkWalletMap = new Map();
+      try {
+        broadcastProgress(cIdx, totalChunks, `Kiểm tra Báo cáo Ví ShopeePay${chunkTag}...`, "Đồng bộ Ví Shopee", syncMode, monthsCount);
+        const expectedWalletFileName = `my_balance_transaction_report.shopee.${chunk.startDateStr.replace(/-/g, "")}_${chunk.endDateStr.replace(/-/g, "")}.xlsx`;
+        const recentWalletList = await getRecentWalletReportsList(spcCds);
+        const existingWallet = recentWalletList.find(r => r.file_name === expectedWalletFileName);
+
+        let walletReportId = null;
+        let isWalletAlreadyDone = false;
+
+        if (cIdx === 0) {
+          // Tháng hiện tại: yêu cầu tạo báo cáo ví mới nhất để lấy giao dịch đến từng phút
+          const reqRes = await requestWalletReport(spcCds, chunk.startDateStr, chunk.endDateStr);
+          walletReportId = reqRes?.report_id || reqRes?.reportId;
+        } else {
+          // Tháng quá khứ: tái sử dụng nếu đã hoàn thành (status 2 hoặc 3)
+          if (existingWallet && (existingWallet.status === 2 || existingWallet.status === 3)) {
+            walletReportId = existingWallet.report_id || existingWallet.reportId;
+            isWalletAlreadyDone = true;
+          } else {
+            const reqRes = await requestWalletReport(spcCds, chunk.startDateStr, chunk.endDateStr);
+            walletReportId = reqRes?.report_id || reqRes?.reportId;
+          }
+        }
+
+        if (walletReportId) {
+          if (!isWalletAlreadyDone) {
+            await pollWalletReportReady(spcCds, walletReportId, (elapsedSec) => {
+              broadcastProgress(cIdx, totalChunks, `Shopee đang tạo Báo cáo Ví${chunkTag} (${elapsedSec}s)...`, "Đang tạo báo cáo ví", syncMode, monthsCount);
+            }, 60000); // Timeout 60s an toàn cho báo cáo ví
+          }
+          broadcastProgress(cIdx, totalChunks, `Đang tải Báo cáo Ví${chunkTag}...`, "Tải báo cáo ví", syncMode, monthsCount);
+          const uint8WalletFile = await downloadWalletReportFile(spcCds, walletReportId);
+          chunkWalletMap = parseShopeeWalletExcel(uint8WalletFile);
+        }
+      } catch (wErr) {
+        console.warn(`Lỗi đồng bộ báo cáo ví ${chunk.label}:`, wErr);
+        walletWarnings.push(`${chunk.label}: ${wErr.message}`);
+        broadcastProgress(cIdx, totalChunks, `⚠️ Không thể lấy Báo cáo Ví ${chunk.label} (${wErr.message}). Tiếp tục đồng bộ đơn hàng...`, "Cảnh báo ví", syncMode, monthsCount);
+      }
+
+      // Hợp nhất số tiền thực nhận vào ví vào từng đơn hàng
       for (const ord of chunkOrders) {
+        if (chunkWalletMap && chunkWalletMap.has(ord.order_sn)) {
+          ord.wallet_amount = chunkWalletMap.get(ord.order_sn);
+        } else {
+          ord.wallet_amount = null; // Đơn chưa quyết toán ví hoặc lỗi ví
+        }
         if (!unifiedOrdersMap.has(ord.order_sn)) {
           unifiedOrdersMap.set(ord.order_sn, ord);
         }
@@ -985,7 +1217,12 @@ async function performFullSync(customWebhookUrl, options = {}) {
     if (syncCancelRequested) throw new Error("SYNC_CANCELLED");
 
     const allOrders = Array.from(unifiedOrdersMap.values());
-    allOrders.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    allOrders.sort((a, b) => {
+      const tA = new Date(String(a.created_at || "").replace(" ", "T")).getTime();
+      const tB = new Date(String(b.created_at || "").replace(" ", "T")).getTime();
+      if (!isNaN(tA) && !isNaN(tB) && tB !== tA) return tB - tA;
+      return String(b.order_sn || "").localeCompare(String(a.order_sn || ""));
+    });
 
     if (allOrders.length === 0) {
       return { success: false, message: "Không tìm thấy đơn hàng nào trong khoảng thời gian đã chọn!" };
@@ -1034,11 +1271,13 @@ async function performFullSync(customWebhookUrl, options = {}) {
     const syncDurationMs = Date.now() - syncStartTime;
     const syncDurationText = formatDuration(syncDurationMs);
     const modeTag = syncMode === "months" ? ` (${monthsCount} tháng gần nhất)` : " (Toàn bộ)";
+    const walletWarnText = walletWarnings.length > 0 ? `\n(⚠️ Lưu ý Báo cáo Ví: ${walletWarnings.join("; ")})` : "";
     const finalResult = {
       success: finalSheetResult.success, totalOrders: totalOrdersSynced,
       durationMs: syncDurationMs, durationText: syncDurationText,
+      walletWarnings: walletWarnings,
       message: finalSheetResult.success
-        ? `Đã đồng bộ trọn vẹn ${totalOrdersSynced} đơn hàng${modeTag} sang Google Sheet (${syncDurationText})!`
+        ? `Đã đồng bộ trọn vẹn ${totalOrdersSynced} đơn hàng${modeTag} sang Google Sheet (${syncDurationText})!${walletWarnText}`
         : `Lỗi ghi Google Sheet: ${finalSheetResult.message}`
     };
 

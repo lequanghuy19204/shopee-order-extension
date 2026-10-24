@@ -23,15 +23,32 @@ function parseOrderDate(val) {
   if (val instanceof Date) return isNaN(val.getTime()) ? new Date() : val;
   if (!val) return new Date();
   const str = String(val).trim();
-  if (str.includes("-")) { const dIso = new Date(str); if (!isNaN(dIso.getTime())) return dIso; }
+
+  // 1. Khớp định dạng ngày YYYY-MM-DD (với giờ HH:mm hoặc HH:mm:ss) từ Shopee Excel
+  const dashMatch = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T\s](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (dashMatch) {
+    const y = parseInt(dashMatch[1], 10);
+    const m = parseInt(dashMatch[2], 10) - 1;
+    const d = parseInt(dashMatch[3], 10);
+    const h = dashMatch[4] ? parseInt(dashMatch[4], 10) : 0;
+    const min = dashMatch[5] ? parseInt(dashMatch[5], 10) : 0;
+    const s = dashMatch[6] ? parseInt(dashMatch[6], 10) : 0;
+    return new Date(y, m, d, h, min, s);
+  }
+
+  // 2. Khớp định dạng ngày hiển thị dd/MM/yyyy HH:mm:ss trên Sheet
   const slashMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
   if (slashMatch) {
     const timeMatch = str.match(/(\d{1,2}):(\d{1,2})(?::(\d{1,2}))?/);
-    const hour = timeMatch ? parseInt(timeMatch[1], 10) : 0, min = timeMatch ? parseInt(timeMatch[2], 10) : 0, sec = (timeMatch && timeMatch[3]) ? parseInt(timeMatch[3], 10) : 0;
-    let day = parseInt(slashMatch[1], 10), month = parseInt(slashMatch[2], 10);
+    const hour = timeMatch ? parseInt(timeMatch[1], 10) : 0;
+    const min = timeMatch ? parseInt(timeMatch[2], 10) : 0;
+    const sec = (timeMatch && timeMatch[3]) ? parseInt(timeMatch[3], 10) : 0;
+    let day = parseInt(slashMatch[1], 10);
+    let month = parseInt(slashMatch[2], 10);
     if (month > 12 && day <= 12) { const t = day; day = month; month = t; }
     return new Date(parseInt(slashMatch[3], 10), month - 1, day, hour, min, sec);
   }
+
   const d = new Date(str);
   return isNaN(d.getTime()) ? new Date() : d;
 }
@@ -45,27 +62,32 @@ function formatSheetTemplate(sheet) {
   try {
     sheet.getRange(1, 1, sheet.getMaxRows(), sheet.getMaxColumns()).clearNote();
   } catch (e) {}
-  const headers = ["Ngày tạo", "Mã đơn hàng", "Mã vận đơn", "ĐVVC", "Tên người nhận", "Khu vực nhận", "Chi tiết sản phẩm", "Tổng SL", "Tổng tiền sản phẩm", "Doanh thu đơn hàng ước tính", "Tổng tiền Thanh toán của người mua", "Trạng thái đơn", "Tình trạng Hoàn/Hủy", "Ngày cập nhật"];
+  const headers = [
+    "Ngày tạo", "Mã đơn hàng", "Mã vận đơn", "ĐVVC", "Tên người nhận", "Khu vực nhận", "Chi tiết sản phẩm",
+    "Tổng SL", "Tổng tiền sản phẩm", "Doanh thu đơn hàng ước tính", "Tiền thực nhận vào ví",
+    "Tổng tiền Thanh toán của người mua", "Trạng thái đơn", "Tình trạng Hoàn/Hủy", "Ngày cập nhật"
+  ];
   sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold").setFontSize(10).setFontColor("#FFFFFF").setVerticalAlignment("middle").setHorizontalAlignment("center");
   sheet.setRowHeight(1, 38);
 
-  [["A1:D1","#34495E"], ["E1:F1","#2980B9"], ["G1:H1","#D35400"], ["I1:K1","#27AE60"], ["L1:N1","#8E44AD"]]
+  [["A1:D1","#34495E"], ["E1:F1","#2980B9"], ["G1:H1","#D35400"], ["I1:L1","#27AE60"], ["M1:O1","#8E44AD"]]
     .forEach(([rng, bg]) => sheet.getRange(rng).setBackground(bg));
-  sheet.getRange("L1:N1").setWrap(true);
+  sheet.getRange("M1:O1").setWrap(true);
 
-  [135, 165, 145, 100, 150, 140, 320, 80, 145, 175, 185, 140, 180, 135].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
+  [135, 165, 145, 100, 150, 140, 320, 80, 145, 175, 175, 185, 140, 180, 135].forEach((w, i) => sheet.setColumnWidth(i + 1, w));
   sheet.setFrozenRows(2);
   sheet.setFrozenColumns(2);
 
   sheet.setRowHeight(2, 34);
-  sheet.getRange("A2:N2").setBackground("#EAEDED").setFontWeight("bold").setFontSize(10.5).setVerticalAlignment("middle")
+  sheet.getRange("A2:O2").setBackground("#EAEDED").setFontWeight("bold").setFontSize(10.5).setVerticalAlignment("middle")
     .setBorder(true, null, true, null, null, null, "#2C3E50", SpreadsheetApp.BorderStyle.DOUBLE);
 
   sheet.getRange("B2").setValue("⭐ TỔNG CỘNG").setHorizontalAlignment("center").setFontColor("#C0392B");
-  sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+  sheet.getRange("H2:L2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)", "=SUM(L3:L50000)"]]);
   sheet.getRange("H2").setNumberFormat("#,##0").setHorizontalAlignment("center");
-  sheet.getRange("I2:K2").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
+  sheet.getRange("I2:L2").setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
   sheet.getRange("J2").setFontColor("#1E8449");
+  sheet.getRange("K2").setFontColor("#145A32");
 
   const maxRows = Math.max(1000, sheet.getMaxRows() - 2);
   sheet.getRange(3, 1, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
@@ -74,18 +96,19 @@ function formatSheetTemplate(sheet) {
   sheet.getRange(3, 5, maxRows, 2).setHorizontalAlignment("left");
   sheet.getRange(3, 7, maxRows, 1).setWrap(true).setHorizontalAlignment("left");
   sheet.getRange(3, 8, maxRows, 1).setNumberFormat("#,##0").setHorizontalAlignment("center");
-  sheet.getRange(3, 9, maxRows, 3).setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
+  sheet.getRange(3, 9, maxRows, 4).setNumberFormat("#,##0 \"₫\"").setHorizontalAlignment("right");
   sheet.getRange(3, 10, maxRows, 1).setFontWeight("bold").setFontColor("#1E8449");
-  sheet.getRange(3, 12, maxRows, 2).clearDataValidations().setNumberFormat("@").setHorizontalAlignment("center");
-  sheet.getRange(3, 14, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
+  sheet.getRange(3, 11, maxRows, 1).setFontWeight("bold").setFontColor("#145A32");
+  sheet.getRange(3, 13, maxRows, 2).clearDataValidations().setNumberFormat("@").setHorizontalAlignment("center");
+  sheet.getRange(3, 15, maxRows, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
 
   const ss = sheet.getParent();
   const sep = getFormulaDelimiter(ss);
 
   sheet.setConditionalFormatRules([
-    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=REGEXMATCH(L3${sep} "(?i)đã giao|hoàn thành")`).setBackground("#D4EFDF").setFontColor("#145A32").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=REGEXMATCH(L3${sep} "(?i)hủy|trả hàng|hoàn tiền")`).setBackground("#FADBD8").setFontColor("#78281F").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build(),
-    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=REGEXMATCH(L3${sep} "(?i)đang giao|vận chuyển|chuẩn bị")`).setBackground("#FCF3CF").setFontColor("#7D6608").setRanges([sheet.getRange(3, 12, maxRows, 1)]).build()
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=REGEXMATCH(M3${sep} "(?i)đã giao|hoàn thành")`).setBackground("#D4EFDF").setFontColor("#145A32").setRanges([sheet.getRange(3, 13, maxRows, 1)]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=REGEXMATCH(M3${sep} "(?i)hủy|trả hàng|hoàn tiền")`).setBackground("#FADBD8").setFontColor("#78281F").setRanges([sheet.getRange(3, 13, maxRows, 1)]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(`=REGEXMATCH(M3${sep} "(?i)đang giao|vận chuyển|chuẩn bị")`).setBackground("#FCF3CF").setFontColor("#7D6608").setRanges([sheet.getRange(3, 13, maxRows, 1)]).build()
   ]);
 }
 
@@ -113,10 +136,10 @@ function fixCancelledOrders() {
   const masterSheet = ss.getSheetByName(SHEET_NAME);
   if (!masterSheet || masterSheet.getLastRow() < 3) return;
   const lastR = masterSheet.getLastRow();
-  const rowsData = masterSheet.getRange(3, 9, lastR - 2, 4).getValues(); // Cột I (9), J (10), K (11), L (12: Trạng thái)
+  const rowsData = masterSheet.getRange(3, 9, lastR - 2, 5).getValues(); // Cột I (9), J (10), K (11), L (12), M (13: Trạng thái)
   let fixCount = 0;
   for (let i = 0; i < rowsData.length; i++) {
-    const st = String(rowsData[i][3] || "").toLowerCase();
+    const st = String(rowsData[i][4] || "").toLowerCase();
     if (st.includes("hủy")) {
       if (rowsData[i][0] !== 0 || rowsData[i][1] !== 0) {
         rowsData[i][0] = 0; // Cột I: Tổng tiền sản phẩm = 0 ₫
@@ -159,6 +182,7 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
 
     let prodAmt = (order.product_amount !== undefined && order.product_amount !== "") ? Number(order.product_amount) : 0;
     let escrowAmt = (order.escrow_amount !== undefined && order.escrow_amount !== "") ? Number(order.escrow_amount) : 0;
+    let walletAmt = (order.wallet_amount !== undefined && order.wallet_amount !== null && order.wallet_amount !== "") ? Number(order.wallet_amount) : "";
     const buyerPaidAmt = (order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== "") ? Number(order.buyer_paid_amount) : 0;
     const statusStr = String(order.order_status || "");
     if (statusStr.toLowerCase().includes("hủy")) {
@@ -178,10 +202,11 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
       if (order.total_quantity !== undefined && order.total_quantity !== "") r[7] = Number(order.total_quantity);
       if (order.product_amount !== undefined && order.product_amount !== "") r[8] = prodAmt;
       if (order.escrow_amount !== undefined && order.escrow_amount !== "") r[9] = escrowAmt;
-      if (order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== "") r[10] = buyerPaidAmt;
-      if (order.order_status !== undefined) r[11] = String(order.order_status);
-      if (order.return_status !== undefined) r[12] = String(order.return_status);
-      r[13] = now;
+      if (walletAmt !== "") r[10] = walletAmt;
+      if (order.buyer_paid_amount !== undefined && order.buyer_paid_amount !== "") r[11] = buyerPaidAmt;
+      if (order.order_status !== undefined) r[12] = String(order.order_status);
+      if (order.return_status !== undefined) r[13] = String(order.return_status);
+      r[14] = now;
       updatedCount++;
     } else {
       const newRow = [
@@ -189,7 +214,7 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
         order.tracking_no || "", order.shipping_carrier || "", order.buyer_name || "",
         order.shipping_area || "", order.items_detail || "• Đơn hàng " + sn,
         Number(order.total_quantity) || 1,
-        prodAmt, escrowAmt, buyerPaidAmt,
+        prodAmt, escrowAmt, walletAmt, buyerPaidAmt,
         String(order.order_status || "Chờ lấy hàng"), String(order.return_status || "Bình thường"), now
       ];
       orderRowMap.set(sn, currentRows.length);
@@ -212,16 +237,16 @@ function upsertOrdersToSheet(sheet, ordersList, isLastBatch) {
   }
 
   if (currentRows.length > 0) {
-    sheet.getRange(3, 1, currentRows.length, 14).setValues(currentRows);
+    sheet.getRange(3, 1, currentRows.length, 15).setValues(currentRows);
     sheet.getRange(3, 1, currentRows.length, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
   }
 
   if (isLastBatch) {
     const prevDataRows = existingRowCount - 2;
     if (prevDataRows > currentRows.length) {
-      sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 14).clearContent();
+      sheet.getRange(3 + currentRows.length, 1, prevDataRows - currentRows.length, 15).clearContent();
     }
-    sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+    sheet.getRange("H2:L2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)", "=SUM(L3:L50000)"]]);
   }
 
   return { created: createdCount, updated: updatedCount, total: currentRows.length };
@@ -357,15 +382,15 @@ function syncMonthlySheetsFromMaster(ss, targetMonths) {
       mSheet.insertRowsAfter(curMax, neededRows - curMax);
     }
 
-    mSheet.getRange(3, 1, mRows.length, 14).setValues(mRows);
+    mSheet.getRange(3, 1, mRows.length, 15).setValues(mRows);
     mSheet.getRange(3, 1, mRows.length, 1).setNumberFormat("dd/MM/yyyy HH:mm:ss").setHorizontalAlignment("center");
 
     const prevDataRows = mSheet.getLastRow() - 2;
     if (prevDataRows > mRows.length) {
-      mSheet.getRange(3 + mRows.length, 1, prevDataRows - mRows.length, 14).clearContent();
+      mSheet.getRange(3 + mRows.length, 1, prevDataRows - mRows.length, 15).clearContent();
     }
 
-    mSheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+    mSheet.getRange("H2:L2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)", "=SUM(L3:L50000)"]]);
     updatedMonths.push(mName);
   }
   return updatedMonths;
@@ -378,7 +403,7 @@ function splitOrdersToMonthlySheets() {
     return;
   }
   const updated = syncMonthlySheetsFromMaster(ss, null);
-  SpreadsheetApp.getUi().alert(`🎉 Đã đồng bộ 100% tất cả 14 cột sang các sheet: ${updated.join(", ")}!`);
+  SpreadsheetApp.getUi().alert(`🎉 Đã đồng bộ 100% tất cả 15 cột sang các sheet: ${updated.join(", ")}!`);
 }
 
 function sortByNewestCreated() {
@@ -387,8 +412,8 @@ function sortByNewestCreated() {
   if (values.length < 3) return;
   const rows = values.slice(2).filter(r => r[1] && !String(r[1]).toUpperCase().includes("TỔNG CỘNG"));
   rows.sort((a, b) => parseOrderDate(b[0]).getTime() - parseOrderDate(a[0]).getTime());
-  if (rows.length > 0) sheet.getRange(3, 1, rows.length, 14).setValues(rows);
-  sheet.getRange("H2:K2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)"]]);
+  if (rows.length > 0) sheet.getRange(3, 1, rows.length, 15).setValues(rows);
+  sheet.getRange("H2:L2").setFormulas([["=SUM(H3:H50000)", "=SUM(I3:I50000)", "=SUM(J3:J50000)", "=SUM(K3:K50000)", "=SUM(L3:L50000)"]]);
   SpreadsheetApp.getUi().alert(`✅ Đã sắp xếp lại ${rows.length} đơn hàng: MỚI NHẤT ở trên đầu!`);
 }
 
@@ -567,10 +592,10 @@ function setupDashboard(adsData) {
   db.setRowHeight(2, 8);
 
   // 1. 6 Thẻ KPI (Tổng tiền sản phẩm & Sản phẩm đã bán trừ đi Đã hủy và Trả hàng/Hoàn tiền có Doanh thu < 0)
-  const formValid = `'DonHangShopee'!$L$3:$L$50000${sep} "<>*hủy*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0"`;
+  const formValid = `'DonHangShopee'!$M$3:$M$50000${sep} "<>*hủy*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0"`;
   const formProdTotal = `=SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} ${formValid})`;
   const formQtyTotal = `=SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} ${formValid})`;
-  const formOrdersSoldTotal = `=COUNTIFS('DonHangShopee'!$B$3:$B$50000${sep} "<>"${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "<>*hủy*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`;
+  const formOrdersSoldTotal = `=COUNTIFS('DonHangShopee'!$B$3:$B$50000${sep} "<>"${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "<>*hủy*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`;
 
   const kpiNotes = [
     "💰 DOANH THU ƯỚC TÍNH (VỀ VÍ):\n• Nguồn dữ liệu: Ô 'DonHangShopee'!J2 (=SUM toàn bộ cột J Doanh thu đơn hàng ước tính).\n• Ý nghĩa: Tổng số tiền thực nhận dự kiến Shopee chuyển về ví người bán sau khi trừ tất cả chi phí sàn, phí thanh toán, voucher trợ giá, hoa hồng tiếp thị...",
@@ -578,7 +603,7 @@ function setupDashboard(adsData) {
     "📦 TỔNG ĐƠN HÀNG:\n• Công thức: =COUNTA('DonHangShopee'!B3:B50000).\n• Vị trí ô: G4.\n• Ý nghĩa: Tổng số lượng tất cả các đơn hàng đã được đồng bộ vào hệ thống (bao gồm cả đơn thành công, đang giao, đã hủy, hoàn tiền).",
     "🛍️ TỔNG ĐƠN HÀNG ĐÃ BÁN:\n• Nguồn dữ liệu: Bảng DonHangShopee.\n• Công thức: =COUNTIFS(Mã đơn, '<>', Trạng thái, '<>*hủy*', Doanh thu, '>=0').\n• Vị trí ô: I4.\n• Ý nghĩa: Tổng số lượng đơn hàng bán thành công hoặc đang vận chuyển, ĐÃ TRỪ TRIỆT ĐỂ: Các đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
     "👕 SẢN PHẨM ĐÃ BÁN:\n• Nguồn dữ liệu: Cột H (Tổng SL) trên bảng DonHangShopee.\n• Công thức: =SUMIFS(Tổng SL, Không hủy, Doanh thu >= 0).\n• Vị trí ô: L4.\n• Ý nghĩa: Tổng số lượng sản phẩm (cái/chiếc) giao thành công hoặc đang giao, ĐÃ TRỪ TRIỆT ĐỂ số lượng của đơn Đã hủy và đơn Trả hàng/Hoàn tiền bồi hoàn (Doanh thu ước tính < 0).",
-    "🚨 TỶ LỆ HỦY ĐƠN:\n• Công thức: =IFERROR(COUNTIF('DonHangShopee'!L3:L50000, \"*hủy*\") / COUNTA('DonHangShopee'!B3:B50000), 0).\n• Vị trí ô: O4.\n• Ý nghĩa: Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."
+    "🚨 TỶ LỆ HỦY ĐƠN:\n• Công thức: =IFERROR(COUNTIF('DonHangShopee'!M3:M50000, \"*hủy*\") / COUNTA('DonHangShopee'!B3:B50000), 0).\n• Vị trí ô: O4.\n• Ý nghĩa: Tỷ lệ phần trăm số đơn bị hủy trên tổng số đơn hàng đã tiếp nhận."
   ];
 
   [
@@ -587,7 +612,7 @@ function setupDashboard(adsData) {
     ["G3:H4", "G3:H3", "G4:H4", "📦 TỔNG ĐƠN HÀNG", "=COUNTA('DonHangShopee'!B3:B50000)", "#E8DAEF", "#512E5F", "#,##0"],
     ["I3:K4", "I3:K3", "I4:K4", "🛍️ TỔNG ĐƠN HÀNG ĐÃ BÁN", formOrdersSoldTotal, "#E8F8F5", "#117A65", "#,##0"],
     ["L3:N4", "L3:N3", "L4:N4", "👕 SẢN PHẨM ĐÃ BÁN", formQtyTotal, "#F2F4F4", "#2C3E50", "#,##0"],
-    ["O3:P4", "O3:P3", "O4:P4", "🚨 TỶ LỆ HỦY ĐƠN", `=IFERROR(COUNTIF('DonHangShopee'!L3:L50000${sep} "*hủy*")/COUNTA('DonHangShopee'!B3:B50000)${sep} 0)`, "#FADBD8", "#B03A2E", "0.0%"]
+    ["O3:P4", "O3:P3", "O4:P4", "🚨 TỶ LỆ HỦY ĐƠN", `=IFERROR(COUNTIF('DonHangShopee'!M3:M50000${sep} "*hủy*")/COUNTA('DonHangShopee'!B3:B50000)${sep} 0)`, "#FADBD8", "#B03A2E", "0.0%"]
   ].forEach(([rng, top, val, title, form, bg, c, fmt], i) => {
     db.getRange(top).merge().setValue(title).setFontSize(9).setFontWeight("bold").setFontColor("#555").setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNote(kpiNotes[i]);
     db.getRange(val).merge().setFormula(form).setFontSize(15).setFontWeight("bold").setFontColor(c).setBackground(bg).setHorizontalAlignment("center").setVerticalAlignment("middle").setNumberFormat(fmt).setNote(kpiNotes[i]);
@@ -807,46 +832,46 @@ function setupDashboard(adsData) {
   const statuses = [
     [
       "🟢 Đã giao / Hoàn thành",
-      `=COUNTIFS('DonHangShopee'!$L$3:$L$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*nhận được hàng*") + COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*hoàn thành*")`,
+      `=COUNTIFS('DonHangShopee'!$M$3:$M$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*nhận được hàng*") + COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*hoàn thành*")`,
       `=IFERROR(K8/$G$4${sep} 0)`,
-      `=SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*nhận được hàng*"${sep} 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*hoàn thành*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
-      `=SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*nhận được hàng*"${sep} 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*hoàn thành*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
-      `=SUMIFS('DonHangShopee'!$J$3:$J$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*nhận được hàng*"${sep} 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*hoàn thành*"${sep} 'DonHangShopee'!$J$3:$J$50000)`,
+      `=SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*nhận được hàng*"${sep} 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*hoàn thành*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
+      `=SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*nhận được hàng*"${sep} 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*hoàn thành*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
+      `=SUMIFS('DonHangShopee'!$J$3:$J$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "Đã giao"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*nhận được hàng*"${sep} 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*hoàn thành*"${sep} 'DonHangShopee'!$J$3:$J$50000)`,
       "Đã vào ví"
     ],
     [
       "🟡 Chờ xử lý / Lấy hàng",
-      `=COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*chờ*")`,
+      `=COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*chờ*")`,
       `=IFERROR(K9/$G$4${sep} 0)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*chờ*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*chờ*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*chờ*"${sep} 'DonHangShopee'!$J$3:$J$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*chờ*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*chờ*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*chờ*"${sep} 'DonHangShopee'!$J$3:$J$50000)`,
       "Đang chuẩn bị"
     ],
     [
       "🔵 Đang vận chuyển",
-      `=COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*giao cho đvvc*") + COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*vận chuyển*") + COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*đang giao*")`,
+      `=COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*giao cho đvvc*") + COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*vận chuyển*") + COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*đang giao*")`,
       `=IFERROR(K10/$G$4${sep} 0)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*giao cho đvvc*"${sep} 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*vận chuyển*"${sep} 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*đang giao*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*giao cho đvvc*"${sep} 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*vận chuyển*"${sep} 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*đang giao*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*giao cho đvvc*"${sep} 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*vận chuyển*"${sep} 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*đang giao*"${sep} 'DonHangShopee'!$J$3:$J$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*giao cho đvvc*"${sep} 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*vận chuyển*"${sep} 'DonHangShopee'!$H$3:$H$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*đang giao*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*giao cho đvvc*"${sep} 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*vận chuyển*"${sep} 'DonHangShopee'!$I$3:$I$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*đang giao*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*giao cho đvvc*"${sep} 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*vận chuyển*"${sep} 'DonHangShopee'!$J$3:$J$50000) + SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*đang giao*"${sep} 'DonHangShopee'!$J$3:$J$50000)`,
       "Đang giao"
     ],
     [
       "🔴 Đã hủy đơn",
-      `=COUNTIF('DonHangShopee'!$L$3:$L$50000${sep} "*hủy*")`,
+      `=COUNTIF('DonHangShopee'!$M$3:$M$50000${sep} "*hủy*")`,
       `=IFERROR(K11/$G$4${sep} 0)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*hủy*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
-      `=SUMIF('DonHangShopee'!$L$3:$L$50000${sep} "*hủy*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*hủy*"${sep} 'DonHangShopee'!$H$3:$H$50000)`,
+      `=SUMIF('DonHangShopee'!$M$3:$M$50000${sep} "*hủy*"${sep} 'DonHangShopee'!$I$3:$I$50000)`,
       "=0",
       "Đơn bị hủy"
     ],
     [
       "🟣 Trả hàng / Hoàn tiền",
-      `=COUNTIFS('DonHangShopee'!$J$3:$J$50000${sep} "<0") + COUNTIFS('DonHangShopee'!$L$3:$L$50000${sep} "*trả*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + COUNTIFS('DonHangShopee'!$L$3:$L$50000${sep} "*hoàn*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`,
+      `=COUNTIFS('DonHangShopee'!$J$3:$J$50000${sep} "<0") + COUNTIFS('DonHangShopee'!$M$3:$M$50000${sep} "*trả*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + COUNTIFS('DonHangShopee'!$M$3:$M$50000${sep} "*hoàn*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`,
       `=IFERROR(K12/$G$4${sep} 0)`,
-      `=SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$J$3:$J$50000${sep} "<0") + SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "*trả*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "*hoàn*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`,
-      `=SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$J$3:$J$50000${sep} "<0") + SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "*trả*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$L$3:$L$50000${sep} "*hoàn*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`,
+      `=SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$J$3:$J$50000${sep} "<0") + SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "*trả*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIFS('DonHangShopee'!$H$3:$H$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "*hoàn*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`,
+      `=SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$J$3:$J$50000${sep} "<0") + SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "*trả*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0") + SUMIFS('DonHangShopee'!$I$3:$I$50000${sep} 'DonHangShopee'!$M$3:$M$50000${sep} "*hoàn*"${sep} 'DonHangShopee'!$J$3:$J$50000${sep} ">=0")`,
       `=SUMIFS('DonHangShopee'!$J$3:$J$50000${sep} 'DonHangShopee'!$J$3:$J$50000${sep} "<0")`,
       "Khiếu nại/Hoàn"
     ]
