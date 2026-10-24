@@ -287,7 +287,7 @@ function handleShopeePost(e) {
     if (data.orders && Array.isArray(data.orders)) ordersList = data.orders;
     else if (data.order_sn) ordersList = [data];
 
-    if (data.action === "force_update_code" || data.force_refresh_code || data.action === "setup_dashboard" || data.refresh_dashboard || data.action === "sync_monthly_sheets") {
+    if (ordersList.length === 0 && (data.action === "force_update_code" || data.force_refresh_code || data.action === "setup_dashboard" || data.refresh_dashboard || data.action === "sync_monthly_sheets")) {
       try {
         const updated = syncMonthlySheetsFromMaster(ss, null);
         setupDashboard(data);
