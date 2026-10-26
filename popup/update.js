@@ -108,7 +108,7 @@ async function initUpdateUI() {
   const successNotice = document.getElementById("successNotice");
 
   // A. Lấy phiên bản tiện ích hiện tại ngay lập tức
-  let currentVer = "1.1.2";
+  let currentVer = "1.1.3";
   try {
     const manifest = (typeof chrome !== "undefined" && chrome.runtime?.getManifest) ? chrome.runtime.getManifest() : null;
     if (manifest && manifest.version) currentVer = manifest.version;
