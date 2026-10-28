@@ -227,6 +227,7 @@ async function initPopup() {
 
   function startCountdownTicker() {
     if (countdownIntervalTimer) clearInterval(countdownIntervalTimer);
+    let hasRequestedRefresh = false;
 
     function tick() {
       if (!isAutoSyncActive) {
@@ -238,9 +239,18 @@ async function initPopup() {
       if (!targetNextSyncTimestamp || targetNextSyncTimestamp <= Date.now()) {
         nextSyncCountdown.textContent = "Đang xử lý...";
         nextSyncCountdown.style.color = "#d35400";
+        // Nếu đã quá 3 giây so với mốc mà chưa có cập nhật mới, tự động đồng bộ lại status từ background
+        if (targetNextSyncTimestamp > 0 && (Date.now() - targetNextSyncTimestamp > 3000) && !hasRequestedRefresh) {
+          hasRequestedRefresh = true;
+          setTimeout(() => {
+            hasRequestedRefresh = false;
+            syncStatusFromBackground();
+          }, 2000);
+        }
         return;
       }
 
+      hasRequestedRefresh = false;
       const diffSec = Math.floor((targetNextSyncTimestamp - Date.now()) / 1000);
       nextSyncCountdown.textContent = formatCountdown(diffSec);
       nextSyncCountdown.style.color = "#d35400";

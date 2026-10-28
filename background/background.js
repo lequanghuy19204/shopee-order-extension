@@ -1031,9 +1031,40 @@ function generateExportChunks(syncMode, monthsCount) {
   return chunks;
 }
 
+// ==========================================
+// QUẢN LÝ SERVICE WORKER KEEP-ALIVE & TIẾN TRÌNH ĐỒNG BỘ
+// ==========================================
+
+let keepAliveTimer = null;
+
+function startSyncKeepAlive() {
+  stopSyncKeepAlive();
+  // Gọi API nhẹ của Chrome mỗi 20 giây để reset bộ đếm 30s idle của Service Worker MV3
+  // Giúp Service Worker không bao giờ bị Chrome ngắt giữa chừng khi đang chạy đồng bộ nền
+  keepAliveTimer = setInterval(() => {
+    try {
+      chrome.runtime.getPlatformInfo(() => {});
+    } catch (e) {}
+  }, 20000);
+}
+
+function stopSyncKeepAlive() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+}
+
 async function performFullSync(customWebhookUrl, options = {}) {
+  // Cơ chế an toàn chống treo vĩnh viễn: Nếu cờ isSyncingInProgress bị kẹt quá 10 phút, tự động giải phóng
   if (isSyncingInProgress) {
-    return { success: false, message: "Đang có tiến trình đồng bộ đang chạy, vui lòng đợi..." };
+    const elapsed = Date.now() - (currentProgressState.startTime || 0);
+    if (elapsed > 10 * 60 * 1000) {
+      console.warn("Tiến trình đồng bộ trước đó đã chạy quá 10 phút, tự động giải phóng để chu kỳ mới hoạt động.");
+      isSyncingInProgress = false;
+    } else {
+      return { success: false, message: "Đang có tiến trình đồng bộ đang chạy, vui lòng đợi..." };
+    }
   }
 
   const settings = await getSettings();
@@ -1050,6 +1081,9 @@ async function performFullSync(customWebhookUrl, options = {}) {
 
   let activeTabId = null;
   let didCreateTab = false;
+
+  // Bắt đầu giữ Service Worker sống trong suốt quá trình đồng bộ nền
+  startSyncKeepAlive();
 
   try {
     const resolvedTab = await resolveShopeeTab(options.tabId);
@@ -1317,6 +1351,7 @@ async function performFullSync(customWebhookUrl, options = {}) {
     broadcastProgress(0, 0, errRes.message, "Thất bại", syncMode, monthsCount, true);
     return errRes;
   } finally {
+    stopSyncKeepAlive();
     if (didCreateTab && activeTabId) {
       chrome.tabs.remove(activeTabId).catch(() => {});
     }
@@ -1351,26 +1386,86 @@ async function postToGoogleSheet(payload, customWebhookUrl) {
 }
 
 async function scheduleNextAutoSync(sec) {
-  await chrome.alarms.clear("shopeeAutoSync");
-  const next = (!sec || sec < 30) ? 0 : Date.now() + sec * 1000;
-  await chrome.storage.local.set({ nextSyncTimestamp: next });
-  if (next) chrome.alarms.create("shopeeAutoSync", { when: next });
+  try {
+    await chrome.alarms.clear("shopeeAutoSync");
+  } catch (e) {}
+
+  if (!sec || sec < 30) {
+    await chrome.storage.local.set({ nextSyncTimestamp: 0 });
+    return;
+  }
+
+  const periodMinutes = sec / 60;
+  const nextTime = Date.now() + sec * 1000;
+  await chrome.storage.local.set({ nextSyncTimestamp: nextTime });
+
+  try {
+    // Tạo alarm định kỳ lặp lại (periodInMinutes) để Chrome tự động duy trì chu kỳ vĩnh viễn
+    // Chrome tự động kích hoạt lại định kỳ ngay cả khi Service Worker bị tắt hoặc máy tính ngủ
+    chrome.alarms.create("shopeeAutoSync", {
+      delayInMinutes: periodMinutes,
+      periodInMinutes: periodMinutes
+    });
+  } catch (err) {
+    chrome.alarms.create("shopeeAutoSync", { when: nextTime });
+  }
 }
 
 async function checkAndInitAutoSync() {
-  const s = await getSettings();
-  if (s.autoSyncEnabled && s.autoSyncIntervalSeconds >= 30) await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
+  try {
+    const s = await getSettings();
+    if (s.autoSyncEnabled && s.autoSyncIntervalSeconds >= 30) {
+      const curAlarm = await chrome.alarms.get("shopeeAutoSync").catch(() => null);
+      if (!curAlarm) {
+        // Tự động khôi phục alarm nếu Service Worker khởi động lại mà chưa có alarm
+        await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
+      } else if (curAlarm.scheduledTime && curAlarm.scheduledTime > Date.now()) {
+        await chrome.storage.local.set({ nextSyncTimestamp: curAlarm.scheduledTime });
+      }
+    }
+  } catch (e) {}
 }
 
 chrome.alarms.onAlarm.addListener(async (a) => {
   if (a.name === "shopeeAutoSync") {
-    const s = await getSettings();
-    if (s.autoSyncEnabled && s.autoSyncIntervalSeconds >= 30) {
-      await performFullSync(null, { syncMode: "months", monthsCount: s.syncMonthsCount || 1 });
-      await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
+    try {
+      const s = await getSettings();
+      if (!s.autoSyncEnabled || s.autoSyncIntervalSeconds < 30) {
+        await chrome.alarms.clear("shopeeAutoSync");
+        await chrome.storage.local.set({ nextSyncTimestamp: 0 });
+        return;
+      }
+
+      // Cập nhật ngay nextSyncTimestamp cho lần chạy kế tiếp để giao diện hiển thị chính xác
+      const curAlarm = await chrome.alarms.get("shopeeAutoSync").catch(() => null);
+      const nextTime = (curAlarm && curAlarm.scheduledTime && curAlarm.scheduledTime > Date.now())
+        ? curAlarm.scheduledTime
+        : (Date.now() + s.autoSyncIntervalSeconds * 1000);
+      await chrome.storage.local.set({ nextSyncTimestamp: nextTime });
+
+      // Thực thi đồng bộ trong try/catch/finally an toàn
+      try {
+        await performFullSync(null, { syncMode: "months", monthsCount: s.syncMonthsCount || 1 });
+      } catch (syncErr) {
+        console.error("Lỗi trong chu kỳ tự động đồng bộ:", syncErr);
+      } finally {
+        // Kiểm tra đảm bảo alarm vẫn luôn tồn tại (phòng trường hợp trình duyệt xóa nhầm alarm)
+        const afterAlarm = await chrome.alarms.get("shopeeAutoSync").catch(() => null);
+        if (!afterAlarm) {
+          await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
+        } else if (afterAlarm.scheduledTime && afterAlarm.scheduledTime > Date.now()) {
+          await chrome.storage.local.set({ nextSyncTimestamp: afterAlarm.scheduledTime });
+        }
+      }
+    } catch (err) {
+      console.error("Lỗi onAlarm handler:", err);
     }
   }
 });
+
+// Tự động kiểm tra & phục hồi alarm ở Top-level mỗi khi Service Worker nạp vào bộ nhớ
+checkAndInitAutoSync();
+
 chrome.runtime.onStartup.addListener(checkAndInitAutoSync);
 chrome.runtime.onInstalled.addListener(checkAndInitAutoSync);
 
@@ -1401,7 +1496,23 @@ chrome.runtime.onMessage.addListener((req, sender, sendResponse) => {
     return true;
   }
   if (req.action === "get_sync_status") {
-    getSettings().then(s => sendResponse({ isSyncing: isSyncingInProgress, progress: currentProgressState, ...s }));
+    (async () => {
+      const s = await getSettings();
+      let nextSyncTimestamp = s.nextSyncTimestamp || 0;
+      if (s.autoSyncEnabled) {
+        const alarm = await chrome.alarms.get("shopeeAutoSync").catch(() => null);
+        if (alarm && alarm.scheduledTime && alarm.scheduledTime > Date.now()) {
+          nextSyncTimestamp = alarm.scheduledTime;
+          if (Math.abs(nextSyncTimestamp - (s.nextSyncTimestamp || 0)) > 2000) {
+            chrome.storage.local.set({ nextSyncTimestamp });
+          }
+        } else if (s.autoSyncIntervalSeconds >= 30) {
+          await scheduleNextAutoSync(s.autoSyncIntervalSeconds);
+          nextSyncTimestamp = Date.now() + s.autoSyncIntervalSeconds * 1000;
+        }
+      }
+      sendResponse({ isSyncing: isSyncingInProgress, progress: currentProgressState, ...s, nextSyncTimestamp });
+    })();
     return true;
   }
   if (req.action === "get_settings") { getSettings().then(s => sendResponse(s)); return true; }
